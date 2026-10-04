@@ -1,0 +1,14 @@
+{
+  "name": "session-chronicle",
+  "version": "0.1.0",
+  "description": "Sidebar that analyzes your Claude Code usage: now, cost, tips, standup, improve",
+  "author": { "name": "m-aoki" },
+  "userConfig": {
+    "excludeProjects": {
+      "type": "string",
+      "title": "Excluded projects",
+      "description": "Comma-separated project path prefixes to leave out of the analysis (e.g. customer work)",
+      "default": ""
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "description": "session-chronicle hooks module",
+  "modules": ["./register.js"]
+}
