@@ -12,8 +12,8 @@ const PANE = {
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
-function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number } = {}) {
-  const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[] }
+function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any } = {}) {
+  const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
   mock.env(on, { HOME: '/home/u' })
@@ -31,9 +31,11 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
   on('ui.toast', ($: any, e: any) => { rec.toasts.push(e.text); return { value: undefined } })
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
+  on('ui.copy', ($: any, e: any) => { rec.copied.push(e.text); return { value: { isCopied: true } } })
   on('prompt.submit', ($: any, e: any) => { rec.submitted.push(e.text); return { text: e.text } })
   on('model.complete', ($: any, e: any) => {
     rec.modelPrompts.push(e.system + '\n' + e.prompt)
+    if (opts.model) return opts.model(e)
     return { value: { isAnswered: true, text: opts.modelText ?? '- まず /compact を習慣にする', usage: USAGE } }
   })
   on('tool.call', () => ({ result: 'ok' }))
@@ -191,5 +193,123 @@ test('/chronicle refresh opens the pane without waiting for the indexer', async 
   expect(await ui.find({ type: 'Text', text: /集計中/ })).toBeDefined()
   await clock.advance(60000)
   expect(await ui.find({ type: 'Text', text: /集計: / })).toBeDefined()
+  await ui.unmount()
+})
+
+test('詳しく shows the detail inside the pane and sends nothing to the conversation', async ($, on) => {
+  const { rec, clock } = stubEngine(on, { modelText: '## なぜ重要か\n長いセッションは毎ターン読み直す。' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'ask-cost-heavy-sessions' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '根拠の内訳' })).toBeDefined()
+    expect(await ui.find({ key: 'explain-cost-heavy-sessions' })).toBeDefined()
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'ask-cost-heavy-sessions' })).toBeDefined()
+    await ui.unmount()
+  }
+  expect(rec.submitted).toEqual([])
+  // The explanation was generated once and reused on the second surface.
+  const explains = rec.modelPrompts.filter((p) => p.includes('data の指摘を解説する'))
+  expect(explains.length).toBe(1)
+  expect(explains[0]).toMatch(/信頼できないデータ/)
+})
+
+test('detail of a live warning copies its prompt and keeps file names out of the AI call', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  for (const f of ['/w/alpha.ts', '/w/beta.ts', '/w/gamma.py']) await $.tool.call({ tool: 'Edit', file_path: f, old_string: 'x', new_string: 'y' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-now-unreviewed' })
+  expect(await ui.find({ type: 'Text', text: /gamma\.py/ })).toBeDefined()
+  await ui.press({ key: 'copy-now-unreviewed' })
+  expect(rec.copied.at(-1)).toMatch(/code-reviewer/)
+  expect(rec.submitted).toEqual([])
+  const explain = rec.modelPrompts.find((p) => p.includes('data の指摘を解説する')) || ''
+  expect(explain).not.toMatch(/alpha|beta|gamma/)
+  await ui.unmount()
+})
+
+test('switching tabs leaves the detail view', async ($, on) => {
+  const { clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'improve' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-improve-review-gate' })
+  expect(await ui.find({ key: 'tab-cost' })).toBeUndefined()
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  expect(await ui.find({ key: 'tab-cost' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a failed explanation is retried on the next 詳しく press', async ($, on) => {
+  let calls = 0
+  const { rec, clock } = stubEngine(on, {
+    model: () => {
+      calls += 1
+      return calls === 1 ? { deny: 'api down' } : { value: { isAnswered: true, text: '## なぜ重要か\nok', usage: USAGE } }
+    },
+  })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(await ui.find({ type: 'Text', text: /解説の生成に失敗/ })).toBeDefined()
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(await ui.find({ key: 'explain-cost-heavy-sessions' })).toBeDefined()
+  expect(rec.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('a live warning detail shows it resolved, and /clear closes the detail', async ($, on) => {
+  const { clock } = stubEngine(on)
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
+  on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
+  await start($, clock)
+  for (const f of ['/w/a.ts', '/w/b.ts', '/w/c.py']) await $.tool.call({ tool: 'Edit', file_path: f, old_string: 'x', new_string: 'y' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-now-unreviewed' })
+  await $.agent.spawn({ prompt: 'review', description: 'review', subagentType: 'code-reviewer' })
+  expect(await ui.find({ type: 'Text', text: /解消されました/ })).toBeDefined()
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: undefined })
+  await $.command.run({ command: 'chronicle', args: '' })
+  expect(await ui.find({ key: 'back' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /c\.py/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('適用を依頼 leaves the detail view so the next /chronicle opens the list', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'improve' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-improve-review-gate' })
+  await ui.press({ key: 'apply-improve-review-gate' })
+  expect(rec.submitted.at(-1)).toMatch(/差分を見せてから適用/)
+  await $.command.run({ command: 'chronicle', args: '' })
+  expect(await ui.find({ key: 'back' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a live warning keeps its explanation while numbers move and across a re-index', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  on('session.measure', ($: any, e: any) => ({ changed: [] }))
+  await start($, clock)
+  await $.session.measure({ context: { tokens: 700000, window: 1000000, percent: 70 }, rateLimits: [] })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-now-context' })
+  expect(await ui.find({ key: 'explain-now-context' })).toBeDefined()
+  await $.session.measure({ context: { tokens: 704000, window: 1000000, percent: 70.4 }, rateLimits: [] })
+  expect(await ui.find({ key: 'explain-now-context' })).toBeDefined()
+  await $.command.run({ command: 'chronicle', args: 'refresh' })
+  await clock.settle()
+  expect(await ui.find({ key: 'explain-now-context' })).toBeDefined()
+  expect(rec.modelPrompts.filter((p) => p.includes('data の指摘を解説する')).length).toBe(1)
   await ui.unmount()
 })

@@ -31,7 +31,15 @@ const DOC = 'https://code.claude.com/docs/ja/'
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0)
 const fmt = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n))
-const finding = (f) => ({ severity: 'mid', ...f })
+const finding = (f) => ({ severity: 'mid', details: [], ...f })
+const DETAIL_ROWS = 6
+const TRIGGERS = new Set(['auto', 'manual'])
+const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0) + '%'
+const sessionLabel = (s) => `${(s.project || '?').split('/').pop()} ${String(s.end || '').slice(5, 10)}`
+// Details are built from counts, model names, dates and project folder names only.
+const topSessions = (digest, score, render) => (digest?.sessions || [])
+  .map((s) => ({ s, v: score(s) })).filter((r) => r.v > 0)
+  .sort((a, b) => b.v - a.v).slice(0, DETAIL_ROWS).map(render)
 
 export function isCodePath(path) {
   const dot = path.lastIndexOf('.')
@@ -93,6 +101,9 @@ export function buildNow(live) {
       evidence: live.unreviewed.slice(0, 5).map((p) => p.split('/').pop()).join(', '),
       action: 'CLAUDE.md の規約どおり code-reviewer + security-reviewer を並列で、最後に qa-agent を実行する。',
       prompt: '今回変更したコードに対して code-reviewer と security-reviewer を並列で実行し、その後 qa-agent で最終確認して。',
+      details: live.unreviewed.map((p) => p.split('/').pop()),
+      // File names stay on this machine: the AI explanation is sent without these details.
+      localDetails: true,
     }))
   }
   for (const [label, n] of Object.entries(live?.risky || {})) {
@@ -118,6 +129,7 @@ export function buildCost(digest) {
       evidence: '最大 ' + fmt(Math.max(...big.map((c) => c.preTokens))) + ' tokens',
       action: '1M の枠を使い切る前に compaction する。model-config の auto-compact window を下げるか、60% 付近で手動の `/compact` を習慣にする。',
       doc: DOC + 'model-config',
+      details: big.map((c) => `${String(c.at || '').slice(0, 10)} ${TRIGGERS.has(c.trigger) ? c.trigger : '?'} ${fmt(c.preTokens)} tokens`),
     }))
   }
   out.push(...heavySessionFindings(digest))
@@ -130,6 +142,7 @@ export function buildCost(digest) {
       evidence: `rate limit ${t.apiErrors.rateLimit || 0} 回 / auth ${t.apiErrors.auth || 0} 回`,
       action: 'Fable など credits を消費するモデルは明示的に選んだときだけ使う。既定は opus、実装やレビューは sonnet。',
       doc: DOC + 'model-config',
+      details: Object.entries(t.apiErrors).map(([k, n]) => `${k}: ${n} 回`),
     }))
   }
   const longTurns = t.turns.filter((x) => x.maxMs >= THRESHOLDS.longTurnMs).length
@@ -140,6 +153,7 @@ export function buildCost(digest) {
       evidence: '最長 ' + Math.round(Math.max(...t.turns.map((x) => x.maxMs)) / 60000) + ' 分',
       action: '長い自律作業は /goal や Workflow に分け、途中の結果をファイルに残してコンテキストを軽く保つ。',
       doc: DOC + 'workflows',
+      details: topSessions(digest, (s) => s.turns?.maxMs || 0, (r) => `${sessionLabel(r.s)} 最長 ${Math.round(r.v / 60000)} 分`),
     }))
   }
   return out
@@ -162,6 +176,7 @@ function heavySessionFindings(digest) {
     evidence: top.map(label).join(' · ') + ` / 全体 ${fmt(total)}`,
     action: '長く続けたセッションほど毎ターン全文を読み直す。区切りごとに /clear して要点だけ引き継ぐか、調査をサブエージェントに任せて本線を短く保つ。',
     doc: DOC + 'prompt-caching',
+    details: topSessions(digest, sessionCacheRead, (r) => `${sessionLabel(r.s)} ${fmt(r.v)} (${pct(r.v, total)}) · compaction ${r.s.compactions?.length || 0} 回`),
   })]
 }
 
@@ -177,6 +192,33 @@ function modelMixFindings(t) {
     evidence: top.map(([m, n]) => `${m.replace('claude-', '')} ${Math.round((n / total) * 100)}%`).join(' · '),
     action: 'レビュー、検索、機械的な編集はサブエージェントに sonnet / haiku を指定して任せる。',
     doc: DOC + 'sub-agents',
+    details: outByModel.map(([m, n]) => `${m.replace('claude-', '')}: ${fmt(n)} (${pct(n, total)})`),
+  })]
+}
+
+function reviewGateDetails(t) {
+  const exts = Object.entries(t.editExts).filter(([ext]) => CODE_EXTS.has(ext)).sort((a, b) => b[1] - a[1]).slice(0, DETAIL_ROWS)
+  // Only the known reviewer names are shown; user-defined agent names may carry customer names.
+  const reviewers = Object.entries(t.agents).filter(([a]) => isReviewer(a)).sort((a, b) => b[1] - a[1])
+  const others = sum(Object.entries(t.agents).filter(([a]) => !isReviewer(a)).map(([, n]) => n))
+  return [
+    ...exts.map(([ext, n]) => `編集 ${ext}: ${n} 回`),
+    ...reviewers.map(([a, n]) => `レビュー系 ${a.split(':').pop()}: ${n} 回`),
+    `その他のエージェント: ${others} 回`,
+  ]
+}
+
+function toolErrorFindings(digest) {
+  const denials = sum((digest?.sessions || []).map((s) => s.denials || 0))
+  const errors = sum((digest?.sessions || []).map((s) => s.toolErrors || 0))
+  if (errors < THRESHOLDS.toolErrorsHigh) return []
+  return [finding({
+    id: 'improve-tool-errors', severity: 'low',
+    title: `ツールエラー ${errors} 回（拒否 ${denials} 回）`,
+    evidence: 'Bash の失敗や存在しないパスの読み込みなど',
+    action: 'よく失敗するコマンド（venv のパス、テストの実行方法など）をプロジェクトの CLAUDE.md に書いておく。',
+    doc: DOC + 'memory',
+    details: topSessions(digest, (s) => s.toolErrors || 0, (r) => `${sessionLabel(r.s)} エラー ${r.v} 回`),
   })]
 }
 
@@ -193,6 +235,7 @@ export function buildImprove(digest) {
       evidence: Object.entries(t.agents).filter(([a]) => isReviewer(a)).map(([a, n]) => `${a} ${n}`).join(' · ') || 'なし',
       action: '「コードを書いたらレビュー」を意志ではなく仕組みで担保する。Stop の settings hook か、この mod の Now タブの警告で漏れを止める。',
       doc: DOC + 'hooks-guide',
+      details: reviewGateDetails(t),
       applyPrompt: '~/.claude/CLAUDE.md の Subagents 節を読み、「コード変更を含むターンの終わりには code-reviewer と security-reviewer を必ず実行する」ことを明確にする追記案を作って、差分を見せてから適用して。',
     }))
   }
@@ -216,17 +259,7 @@ export function buildImprove(digest) {
       applyPrompt: 'このプロジェクトで私が繰り返し指摘している点を会話履歴から 3 つ挙げ、プロジェクトの CLAUDE.md に追記する案を差分で見せて。承認したら適用して。',
     }))
   }
-  const denials = sum((digest?.sessions || []).map((s) => s.denials || 0))
-  const errors = sum((digest?.sessions || []).map((s) => s.toolErrors || 0))
-  if (errors >= THRESHOLDS.toolErrorsHigh) {
-    out.push(finding({
-      id: 'improve-tool-errors', severity: 'low',
-      title: `ツールエラー ${errors} 回（拒否 ${denials} 回）`,
-      evidence: 'Bash の失敗や存在しないパスの読み込みなど',
-      action: 'よく失敗するコマンド（venv のパス、テストの実行方法など）をプロジェクトの CLAUDE.md に書いておく。',
-      doc: DOC + 'memory',
-    }))
-  }
+  out.push(...toolErrorFindings(digest))
   return out
 }
 

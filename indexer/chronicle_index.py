@@ -28,7 +28,7 @@ from chronicle_io import (
 )
 from chronicle_text import classify_api_error, first_plain_text, first_text
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 CODE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go", ".swift", ".kt", ".java", ".c", ".cpp", ".cs", ".rb"}
 REVIEWER_AGENTS = {"code-reviewer", "security-reviewer", "qa-agent"}
 RISKY_PATTERNS = [
@@ -47,6 +47,7 @@ MEMORY_RE = re.compile(r"(前回|以前|覚えて|Team Wiki|共有知識)")
 MAX_EDITED_FILES = 15
 MAX_AWAY = 5
 FIRST_PROMPT_CHARS = 80
+COMPACT_TRIGGERS = {"auto", "manual"}
 LOCAL_TZ = datetime.now().astimezone().tzinfo  # day buckets follow the user's clock
 
 
@@ -212,7 +213,9 @@ def record_system(stats: SessionStats, d: dict) -> None:
         stats.turn_ms.append(int(d["durationMs"]))
     elif sub == "compact_boundary":
         meta = d.get("compactMetadata") or {}
-        stats.compactions.append({"trigger": meta.get("trigger"), "preTokens": meta.get("preTokens"), "at": d.get("timestamp")})
+        trigger = meta.get("trigger") if meta.get("trigger") in COMPACT_TRIGGERS else None
+        pre = meta.get("preTokens") if isinstance(meta.get("preTokens"), int) else None
+        stats.compactions.append({"trigger": trigger, "preTokens": pre, "at": d.get("timestamp")})
     elif sub == "away_summary" and d.get("content"):
         stats.away.append(str(d["content"]).split(" (disable recaps")[0][:400])
 

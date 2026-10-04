@@ -23,8 +23,12 @@ spirit of GitHub Copilot CLI's `/chronicle`. Tested with Claude Code 2.1.288.
   `session.measure`, `tool.call` and `agent.spawn`.
 - **AIで要約** (button only) sends findings and counts to `sonnet` via `$.model.complete`.
   Raw prompt text and full project paths are never sent.
-- The mod never writes your files. "適用を依頼" submits a prompt so Claude proposes a
-  diff through the normal permission flow.
+- **詳しく** opens the finding inside the sidebar: the rule's breakdown (dates, counts,
+  per-model/per-session rows), the recommended action, a copyable prompt (`c`), and a
+  sonnet explanation generated on that press and cached until the next re-index (`g`
+  regenerates, `b` goes back). Nothing is sent to the main conversation.
+- The mod never writes your files. "適用を依頼" is the one button that submits a prompt
+  to the conversation, so Claude proposes a diff through the normal permission flow.
 
 ## Use
 
@@ -34,7 +38,7 @@ claude --plugin-dir ~/work/session-chronicle   # one session
 ```
 
 Then `/chronicle [now|cost|tips|standup|improve|refresh]`. Keys: `1`–`5` tabs, `r` re-index,
-`a` AI summary, Esc closes.
+`a` AI summary, Esc closes; in a detail view `b` back, `c` copy prompt, `g` regenerate.
 
 Exclude projects (e.g. customer work) with the `excludeProjects` option: comma-separated
 path prefixes. With `--plugin-dir`, set it under `pluginConfigs["session-chronicle@inline"]`.
