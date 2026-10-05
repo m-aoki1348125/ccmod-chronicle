@@ -13,7 +13,7 @@ const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, c
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
 function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any } = {}) {
-  const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[] }
+  const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[], modelCalls: [] as any[], configSets: [] as any[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
   mock.env(on, { HOME: '/home/u' })
@@ -35,10 +35,14 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
   on('prompt.submit', ($: any, e: any) => { rec.submitted.push(e.text); return { text: e.text } })
   on('model.complete', ($: any, e: any) => {
     rec.modelPrompts.push(e.system + '\n' + e.prompt)
+    rec.modelCalls.push({ model: e.model, effort: e.effort, maxTokens: e.maxTokens, explain: String(e.prompt).includes('data の指摘を解説する') })
     if (opts.model) return opts.model(e)
     return { value: { isAnswered: true, text: opts.modelText ?? '- まず /compact を習慣にする', usage: USAGE } }
   })
   on('tool.call', () => ({ result: 'ok' }))
+  on('config.set', ($: any, e: any) => { rec.configSets.push([e.key, e.value]); return { value: e.value } })
+  // A --plugin-dir load may key our /config rows as `<name>@inline.<field>`.
+  on('config.list', () => ({ value: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'excludeProjects'].map((f) => ({ key: 'session-chronicle@inline.' + f, label: f, kind: 'text', value: '', provider: { plugin: 'session-chronicle', tier: 'user' }, isLocked: false })) }))
   return { rec, clock }
 }
 
@@ -311,5 +315,177 @@ test('a live warning keeps its explanation while numbers move and across a re-in
   await clock.settle()
   expect(await ui.find({ key: 'explain-now-context' })).toBeDefined()
   expect(rec.modelPrompts.filter((p) => p.includes('data の指摘を解説する')).length).toBe(1)
+  await ui.unmount()
+})
+
+const explainCalls = (rec: any) => rec.modelCalls.filter((c: any) => c.explain)
+
+test('explanations default to haiku, low effort and a short reply, and show their token use', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(explainCalls(rec)).toEqual([{ model: 'haiku', effort: 'low', maxTokens: 700, explain: true }])
+  expect(await ui.find({ type: 'Text', text: /haiku · 入力 1 \/ 出力 1 tokens/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /このセッションの AI 消費: 1 回/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('userConfig chooses the model and effort', { options: { aiModel: 'sonnet', aiEffort: 'medium' } }, async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'ai-cost' })
+  expect(rec.modelCalls.map((c: any) => [c.model, c.effort])).toEqual([['sonnet', 'medium'], ['sonnet', 'medium']])
+  await ui.unmount()
+})
+
+test('with autoExplain off, 詳しく makes no model call until g is pressed', { options: { autoExplain: false } }, async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(explainCalls(rec)).toEqual([])
+  expect(await ui.find({ type: 'Text', text: /g で AI 解説を生成/ })).toBeDefined()
+  await ui.press({ key: 'explain-again' })
+  expect(explainCalls(rec).length).toBe(1)
+  await ui.unmount()
+})
+
+test('a digest explanation is reused from the store after a re-index, at no token cost', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await ui.press({ key: 'back' })
+  await $.command.run({ command: 'chronicle', args: 'refresh' })
+  await clock.settle()
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(explainCalls(rec).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: /キャッシュから表示（トークン消費なし）/ })).toBeDefined()
+  expect(Object.keys(rec.saved.get('explainCache') as object).length).toBe(1)
+  await ui.unmount()
+})
+
+test('the pane picker and /config both change the model for the next call', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await ui.select({ key: 'ai-model', value: 'sonnet' })
+  expect(rec.configSets.at(-1)).toEqual(['session-chronicle@inline.aiModel', 'sonnet'])
+  await ui.press({ key: 'explain-again' })
+  await $.config.set({ key: 'session-chronicle@inline.aiModel', value: 'opus' })
+  await ui.press({ key: 'explain-again' })
+  expect(explainCalls(rec).map((c: any) => c.model)).toEqual(['haiku', 'sonnet', 'opus'])
+  await ui.unmount()
+})
+
+test('pressing 詳しく again while an explanation is pending makes one call', async ($, on) => {
+  let clockRef: any
+  const { rec, clock } = stubEngine(on, {
+    model: async () => {
+      await clockRef.sleep(1000)
+      return { value: { isAnswered: true, text: '## なぜ重要か\nok', usage: USAGE } }
+    },
+  })
+  clockRef = clock
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await clock.advance(1000)
+  expect(explainCalls(rec).length).toBe(1)
+  await ui.unmount()
+})
+
+test('a credit-billed model never explains on open, only on g', { options: { aiModel: 'fable' } }, async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(explainCalls(rec)).toEqual([])
+  await ui.press({ key: 'explain-again' })
+  expect(explainCalls(rec).map((c: any) => c.model)).toEqual(['fable'])
+  await ui.unmount()
+})
+
+test('a re-index during a pending explanation still shows it, at one call', async ($, on) => {
+  let clockRef: any
+  const { rec, clock } = stubEngine(on, {
+    model: async () => {
+      await clockRef.sleep(1000)
+      return { value: { isAnswered: true, text: '## なぜ重要か\nok', usage: USAGE } }
+    },
+  })
+  clockRef = clock
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  await $.command.run({ command: 'chronicle', args: 'refresh' })
+  await clock.settle()
+  await clock.advance(1000)
+  await clock.settle()
+  expect(await ui.find({ key: 'explain-cost-heavy-sessions' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /自動生成はオフ/ })).toBeUndefined()
+  expect(explainCalls(rec).length).toBe(1)
+  await ui.unmount()
+})
+
+test('/clear resets the session token total', async ($, on) => {
+  const { clock } = stubEngine(on)
+  on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(await ui.find({ type: 'Text', text: /このセッションの AI 消費: 1 回/ })).toBeDefined()
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: undefined })
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(await ui.find({ type: 'Text', text: /このセッションの AI 消費: 0 回/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('after a reload, a restored detail whose live finding is gone is not reopened', async ($, on) => {
+  const { clock } = stubEngine(on)
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
+  await start($, clock)
+  for (const f of ['/w/a.ts', '/w/b.ts', '/w/c.py']) await $.tool.call({ tool: 'Edit', file_path: f, old_string: 'x', new_string: 'y' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-now-unreviewed' })
+  await $.agent.spawn({ prompt: 'review', description: 'review', subagentType: 'code-reviewer' })
+  // A reload re-runs session.start, which restores the view from $.state.
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'chronicle', args: '' })
+  expect(await ui.find({ key: 'back' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('moving on before the re-index cancels a detail waiting to be restored', async ($, on) => {
+  const { clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  // A reload: session.start restores the view, and the digest detail waits for the re-index.
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  await clock.advance(1500)
+  await clock.settle()
+  expect(await ui.find({ key: 'back' })).toBeUndefined()
+  expect(await ui.find({ key: 'tab-now' })).toBeDefined()
   await ui.unmount()
 })

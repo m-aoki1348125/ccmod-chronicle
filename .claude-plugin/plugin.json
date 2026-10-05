@@ -1,14 +1,52 @@
 {
   "name": "session-chronicle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sidebar that analyzes your Claude Code usage: now, cost, tips, standup, improve",
-  "author": { "name": "m-aoki" },
+  "author": {
+    "name": "m-aoki"
+  },
   "userConfig": {
     "excludeProjects": {
       "type": "string",
       "title": "Excluded projects",
       "description": "Comma-separated project path prefixes to leave out of the analysis (e.g. customer work)",
       "default": ""
+    },
+    "aiModel": {
+      "type": "string",
+      "title": "AI model",
+      "description": "Model for the 詳しく explanation and AI summary. haiku is cheapest; fable consumes usage credits and only runs when you press g.",
+      "options": [
+        "haiku",
+        "sonnet",
+        "opus",
+        "fable"
+      ],
+      "default": "haiku"
+    },
+    "aiEffort": {
+      "type": "string",
+      "title": "AI effort",
+      "description": "Thinking effort for those calls. low keeps tokens down.",
+      "options": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default": "low"
+    },
+    "autoExplain": {
+      "type": "boolean",
+      "title": "Explain on open",
+      "description": "Generate the AI explanation as soon as 詳しく opens. Off: press g to generate. Cached answers are always shown.",
+      "default": true
+    },
+    "cacheExplanations": {
+      "type": "boolean",
+      "title": "Cache explanations",
+      "description": "Keep explanations of Cost/Tips/Improve findings in the plugin store (plain JSON, 40 entries, 14 days) so reopening costs no tokens.",
+      "default": true
     }
-  }
+  },
+  "types": "./types/index.d.ts"
 }

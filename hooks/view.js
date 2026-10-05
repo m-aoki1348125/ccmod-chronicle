@@ -1,6 +1,8 @@
 // Pane rendering. Receives the element functions from $.ui.resolve(e) and plain
 // callbacks from register.js, so this file never touches the mods API itself.
 
+import { EFFORT_OPTIONS, MODEL_OPTIONS } from './ai-config.js'
+
 export const TABS = [
   { id: 'now', label: 'Now', hotkey: '1' },
   { id: 'cost', label: 'Cost', hotkey: '2' },
@@ -126,7 +128,7 @@ function aiBlock(el, model, h) {
   if (!AI_TABS.has(model.tab)) return null
   const { Box, Button, Markdown, Text } = el
   const ai = model.ai[model.tab]
-  const children = [Button({ key: 'ai-' + model.tab, label: ai?.loading ? '要約中…' : 'AIで要約 (sonnet)', hotkey: 'a', onPress: () => h.onAi(model.tab) })]
+  const children = [Button({ key: 'ai-' + model.tab, label: ai?.loading ? '要約中…' : `AIで要約 (${model.settings.model})`, hotkey: 'a', onPress: () => h.onAi(model.tab) })]
   if (ai?.text) children.push(Markdown({ key: 'ai-text-' + model.tab, text: clean(ai.text).slice(0, 9000) }))
   if (ai?.error) children.push(Text({ color: 'error', children: ['要約に失敗: ' + ai.error] }))
   children.push(Text({ dimColor: true, children: ['送信内容: 指摘・集計値・プロジェクト名（Standup はタイトル・要約・コミット件名も）'] }))
@@ -175,16 +177,50 @@ function explainBlock(el, model, h) {
   const { Box, Text, Button, Markdown } = el
   const f = model.detail
   const ex = model.explain
-  const body = ex?.loading ? [Text({ dimColor: true, children: ['AI 解説を生成中… (sonnet)'] })]
+  const body = ex?.loading ? [Text({ dimColor: true, children: [`AI 解説を生成中… (${ex.model})`] })]
     : ex?.error ? [Text({ color: 'error', children: ['解説の生成に失敗: ' + clean(ex.error) + '（g で再試行）'] })]
-    : ex?.text ? [Markdown({ key: 'explain-' + f.id, text: clean(ex.text).slice(0, 9000) })]
-    : []
+    : ex?.text ? [Markdown({ key: 'explain-' + f.id, text: clean(ex.text).slice(0, 9000) }), Text({ dimColor: true, children: [usageLine(ex)] })]
+    : [Text({ dimColor: true, children: [generateHint(model.settings)] })]
   return Box({
     flexDirection: 'column',
     children: [
-      Box({ flexDirection: 'row', columnGap: 2, children: [Text({ bold: true, children: ['AI 解説'] }), Button({ key: 'explain-again', label: '再生成', hotkey: 'g', plain: true, onPress: () => h.onExplainAgain(f) })] }),
+      Box({ flexDirection: 'row', columnGap: 2, children: [Text({ bold: true, children: ['AI 解説'] }), Button({ key: 'explain-again', label: ex?.text ? '再生成' : '生成', hotkey: 'g', plain: true, onPress: () => h.onExplainAgain(f) })] }),
       ...body,
+      settingsRow(el, model, h),
       Text({ dimColor: true, children: [f.localDetails ? '送信内容: 指摘と集計値のみ（ファイル名は送りません）' : '送信内容: 指摘・集計値・根拠の内訳（パスを含む行は送りません）'] }),
+    ],
+  })
+}
+
+// Why there is no explanation yet, so the hint never claims a setting that is not in effect.
+function generateHint(settings) {
+  if (!settings.autoExplain) return 'g で AI 解説を生成（自動生成はオフ）'
+  if (settings.model === 'fable') return 'g で AI 解説を生成（fable は credits を消費するため手動）'
+  return 'g で AI 解説を生成'
+}
+
+function usageLine(ex) {
+  if (ex.isCached) return `${ex.model} · キャッシュから表示（トークン消費なし）`
+  return ex.tokens ? `${ex.model} · 入力 ${ex.tokens.in} / 出力 ${ex.tokens.out} tokens` : ex.model || ''
+}
+
+// Model and effort pickers; a change is saved to this plugin's /config fields.
+function settingsRow(el, model, h) {
+  const { Box, Text, Select } = el
+  const { settings, aiUsage } = model
+  return Box({
+    flexDirection: 'column',
+    children: [
+      Box({
+        flexDirection: 'row',
+        columnGap: 2,
+        flexWrap: 'wrap',
+        children: [
+          Select({ key: 'ai-model', label: 'モデル', value: settings.model, options: MODEL_OPTIONS.map((m) => ({ value: m, label: m === 'fable' ? 'fable（credits 消費）' : m })), onSelect: (v) => h.onSetting('aiModel', v) }),
+          Select({ key: 'ai-effort', label: 'effort', value: settings.effort, options: EFFORT_OPTIONS.map((x) => ({ value: x, label: x })), onSelect: (v) => h.onSetting('aiEffort', v) }),
+        ],
+      }),
+      Text({ dimColor: true, children: [`このセッションの AI 消費: ${aiUsage.calls} 回 · 入力 ${aiUsage.in} / 出力 ${aiUsage.out} tokens`] }),
     ],
   })
 }

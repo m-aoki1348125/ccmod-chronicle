@@ -70,6 +70,20 @@ export function totals(digest) {
   return t
 }
 
+// Live state after one tool call: code files edited since the last review, risky commands run.
+export function trackToolCall(state, e) {
+  let next = state
+  if ((e.tool === 'Edit' || e.tool === 'Write') && typeof e.file_path === 'string' && isCodePath(e.file_path)) {
+    if (!next.unreviewed.includes(e.file_path)) next = { ...next, unreviewed: [...next.unreviewed, e.file_path] }
+  }
+  if (e.tool === 'Bash' && typeof e.command === 'string') {
+    for (const [re, label] of RISKY_COMMANDS) {
+      if (re.test(e.command)) next = { ...next, risky: { ...next.risky, [label]: (next.risky[label] || 0) + 1 } }
+    }
+  }
+  return next
+}
+
 export function buildNow(live) {
   const out = []
   const pct = live?.context?.percent

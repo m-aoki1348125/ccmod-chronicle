@@ -40,8 +40,35 @@ claude --plugin-dir ~/work/session-chronicle   # one session
 Then `/chronicle [now|cost|tips|standup|improve|refresh]`. Keys: `1`–`5` tabs, `r` re-index,
 `a` AI summary, Esc closes; in a detail view `b` back, `c` copy prompt, `g` regenerate.
 
-Exclude projects (e.g. customer work) with the `excludeProjects` option: comma-separated
-path prefixes. With `--plugin-dir`, set it under `pluginConfigs["session-chronicle@inline"]`.
+## Settings
+
+Set these in `/config` (or `/plugin configure`). With `--plugin-dir`, they live under
+`pluginConfigs["session-chronicle@inline"]` in `~/.claude/settings.json`.
+
+| Option | Default | What it does |
+|---|---|---|
+| `aiModel` | `haiku` | Model for 詳しく explanations and AI summaries: `haiku`, `sonnet`, `opus`, `fable`. fable consumes usage credits and only runs when you press `g`. Also switchable from the picker in a detail view, which saves to this setting |
+| `aiEffort` | `low` | Effort for those calls: `low`, `medium`, `high` |
+| `autoExplain` | `true` | Generate the explanation as soon as 詳しく opens. Off: press `g` |
+| `cacheExplanations` | `true` | Keep Cost / Tips / Improve explanations in the plugin store so reopening costs nothing. The store is plain JSON on this machine |
+| `excludeProjects` | empty | Comma-separated project path prefixes to leave out of the analysis (e.g. customer work) |
+
+Changing an option reloads the mod (Claude Code re-runs it with the new options). The open tab,
+detail view, Standup range, Now warnings and explanations, and this session's token total are
+kept in `$.state` and restored. Cost / Tips / Improve refill when the automatic re-index finishes
+a moment later; a restored detail reopens only if its finding still exists and you have not moved
+on. AI summaries follow the re-index and are not restored (press `a` again).
+
+## Token use
+
+The mod makes no model calls except the two AI buttons. To keep those small:
+
+- Replies are capped by effort (low 700, medium 1200, high 2000 tokens, leaving room for
+  thinking) and the prompts ask for 400–500 characters.
+- Explanations of Cost / Tips / Improve findings are cached in the plugin store by finding
+  content, model, effort and `excludeProjects` (40 entries, 14 days), so reopening one costs nothing until the
+  numbers change. Live Now explanations are cached for the session.
+- Each answer shows its input/output tokens; the detail view shows this session's total.
 
 ## Develop
 
