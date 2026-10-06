@@ -8,7 +8,8 @@ import { buildTips } from './catalog.js'
 import { renderPane, TABS } from './view.js'
 import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
-import { addUsage, CREDIT_MODELS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
+import { currentValues, listEntries, parseSetting } from './settings-spec.js'
+import { addUsage, CREDIT_MODELS, LIVE_FIELDS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
 const PANE = 'ccmod-chronicle'
 const INDEX_TIMEOUT_MS = 10 * 60 * 1000
@@ -39,6 +40,8 @@ let ruleCfg = ruleConfig()
 let risky = riskyCommands(ruleCfg)
 let ctx = makeCtx('en', ruleCfg)
 let claudeSettings = {}
+// The options this activation was loaded with, shown and edited in the Settings tab.
+let rawOptions = currentValues()
 let retentionDays = 0
 let digest = null
 let findings = null
@@ -74,14 +77,20 @@ let status = { indexing: false, generatedAt: null, sessions: 0, error: null }
 let versionWarning = null
 let live = EMPTY_LIVE
 
-export function register(on, options) {
-  settings = normalizeSettings(options || {})
-  ruleCfg = ruleConfig(options || {})
+// The options this activation runs with (an options change reloads the mod and calls this again).
+function loadOptions(options = {}) {
+  settings = normalizeSettings(options)
+  rawOptions = currentValues(options)
+  ruleCfg = ruleConfig(options)
   risky = riskyCommands(ruleCfg)
   ctx = makeCtx('en', ruleCfg)
-  retentionDays = clampDays(options?.retentionDays)
+  retentionDays = clampDays(options.retentionDays)
   // Comma or newline only: a ':' would split Windows paths such as C:\\Clients.
-  excludes = String(options?.excludeProjects || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
+  excludes = listEntries(options.excludeProjects)
+}
+
+export function register(on, options) {
+  loadOptions(options || {})
 
   on('session.start', async ($, e, next) => {
     await startSession($)
@@ -143,11 +152,19 @@ function onToolCall($, e) {
 function onConfigSet($, e, result) {
   const field = settingsField(e.key, $.plugin.name)
   if (field && !result?.deny) {
-    settings = mergeSetting(settings, field, result.value)
-    if (field === 'language') applyLanguage()
+    applySetting(field, result.value)
     $.ui.invalidate('ui.render')
   }
   return result
+}
+
+// Show a saved value at once. AI and language settings also apply in place; the rest take
+// effect when the engine reloads the mod with the new options.
+function applySetting(field, value) {
+  rawOptions = { ...rawOptions, [field]: value }
+  if (!LIVE_FIELDS.has(field)) return
+  settings = mergeSetting(settings, field, value)
+  if (field === 'language') applyLanguage()
 }
 
 // The conversation is gone: drop everything that described it and rewrite the $.state mirror.
@@ -172,8 +189,8 @@ async function startSession($) {
   $.clock.after(STARTUP_DELAY_MS, () => refresh($, !isReload))
   await $.command.register({
     name: 'chronicle',
-    description: 'Open the usage-analysis sidebar (now | cost | tips | standup | improve | refresh | purge)',
-    argumentHint: '[tab|refresh|purge]',
+    description: 'Open the usage-analysis sidebar (now | cost | tips | standup | improve | settings | refresh | purge)',
+    argumentHint: '[tab|settings|refresh|purge]',
     immediate: true,
   })
 }
@@ -301,7 +318,7 @@ function viewModel(nowMs) {
   const hidden = [...dismissed, ...sessionDismissed]
   const ranked = Object.fromEntries(Object.entries(lists).map(([k, v]) => [k, rankFindings(v, hidden)]))
   const detail = resolveDetail(lists)
-  return { t: ctx.t, tab, days, status, versionWarning, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
+  return { t: ctx.t, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
 }
 
 function resolveDetail(lists) {
@@ -614,12 +631,21 @@ async function writeExplain($, storeKey, entry) {
 }
 
 // Saves to this plugin's /config row; the engine then reloads the plugin with the new options,
-// and restoreView brings the pane back as it was.
-async function setSetting($, field, value) {
+// and restoreView brings the pane back as it was. Values are checked before anything is written.
+async function setSetting($, field, input) {
+  const parsed = parseSetting(field, input)
+  if (parsed.error) {
+    $.ui.toast(ctx.t(parsed.error, parsed.params))
+    return
+  }
+  const value = parsed.value
   try {
-    const rows = await $.config.list()
-    const row = rows.find((r) => settingsField(r.key, $.plugin.name) === field)
-    const r = await $.config.set({ key: row ? row.key : $.plugin.name + '.' + field, value })
+    const key = ownConfigKey(await $.config.list(), $.plugin.name, field)
+    if (!key) {
+      $.ui.toast(ctx.t('settingFailed', { reason: ctx.t('settingAmbiguous') }))
+      return
+    }
+    const r = await $.config.set({ key, value })
     if (r?.deny) {
       $.ui.toast(ctx.t('settingFailed', { reason: r.deny }))
       return
@@ -628,9 +654,34 @@ async function setSetting($, field, value) {
     $.ui.toast(ctx.t('settingFailed', { reason: String(err?.message || err).slice(-ERROR_CHARS) }))
     return
   }
-  settings = mergeSetting(settings, field, value)
-  if (field === 'aiModel' && CREDIT_MODELS.has(value)) $.ui.toast(ctx.t('creditWarn', { model: value }))
-  $.ui.invalidate('ui.render')
+  const lifted = field === 'excludeProjects' ? removedEntries(rawOptions.excludeProjects, value) : 0
+  applySetting(field, value)
+  const label = ctx.t('cfg_' + field)
+  const message = lifted ? ctx.t('exclusionsLifted', { n: lifted })
+    : field === 'aiModel' && CREDIT_MODELS.has(value) ? ctx.t('creditWarn', { model: value })
+    : ctx.t(LIVE_FIELDS.has(field) ? 'settingSaved' : 'settingSavedReload', { key: label })
+  // The save usually reloads the mod; this activation may already be gone, so never let it throw.
+  try {
+    $.ui.toast(message)
+    $.ui.invalidate('ui.render')
+  } catch {
+    // The reloaded pane draws the new value itself.
+  }
+}
+
+// This plugin's own /config row for a field. Rows from another plugin with the same name (a fork
+// from another marketplace) are skipped; if ours is still ambiguous, nothing is written.
+function ownConfigKey(rows, name, field) {
+  const mine = rows.filter((r) => settingsField(r.key, name) === field && (!r.provider || r.provider.plugin === name))
+  // Two rows of our name (e.g. an installed copy and a --plugin-dir copy) cannot be told apart.
+  if (mine.length > 1) return null
+  return mine.length === 1 ? mine[0].key : name + '.' + field
+}
+
+// How many entries of a comma-separated list a new value drops.
+function removedEntries(before, after) {
+  const next = new Set(listEntries(after))
+  return [...new Set(listEntries(before))].filter((x) => !next.has(x)).length
 }
 
 async function copyPrompt($, text, press) {

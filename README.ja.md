@@ -12,6 +12,7 @@ GitHub Copilot CLI の `/chronicle` のように、Claude Code の使い方を�
 | Tips | あまり使っていない Claude Code の機能（最大 5 件、根拠とドキュメント付き） |
 | Standup | 過去 1 / 3 / 7 日のプロジェクトごとの作業：タイトル、要約、git のコミット、ファイル |
 | Improve | 使い方の改善点（編集後のレビュー、メモの検索、繰り返すやり直し、ツールエラー） |
+| Settings | 下の設定をその場で変更（選択欄と入力欄） |
 
 **詳しく** を押すと、サイドバーの中で根拠の内訳・推奨アクション・コピーできるプロンプト・AI 解説を
 表示します。**適用を依頼** を押したとき以外、会話には何も送りません。
@@ -39,16 +40,16 @@ claude plugin install ccmod-chronicle@ccmod-chronicle
 
 ## 使い方
 
-`/chronicle [now|cost|tips|standup|improve|refresh|purge]`
+`/chronicle [now|cost|tips|standup|improve|settings|refresh|purge]`
 
-キー：`1`〜`5` でタブ、`r` で再集計、`a` で AI 要約、Esc で閉じる。詳細表示では `b` で戻る、
+キー：`1`〜`6` でタブ、`r` で再集計、`a` で AI 要約、Esc で閉じる。詳細表示では `b` で戻る、
 `c` でプロンプトをコピー、`g` で解説を生成・再生成。
 
 `/chronicle purge` で、この mod が保存したものをすべて削除します（[PRIVACY.md](PRIVACY.md) 参照）。
 
 ## 設定
 
-`/config`、または `/plugin` → Installed → ccmod-chronicle → Configure で変更します。`--plugin-dir` で
+**Settings** タブ（`6` か `/chronicle settings`）、`/config`、または `/plugin` → Installed → ccmod-chronicle → Configure で変更します。`--plugin-dir` で
 読み込んだ場合は `~/.claude/settings.json` の `pluginConfigs["ccmod-chronicle@inline"]` に保存されます。
 変更すると mod が再読み込みされ、ペインは元の画面に戻ります。
 

@@ -12,6 +12,7 @@ analyzing how you use Claude Code, in the spirit of GitHub Copilot CLI's `/chron
 | Tips | Up to 5 Claude Code features you underuse, with the evidence and a docs link |
 | Standup | Work per project over the last 1 / 3 / 7 days: titles, recaps, git commits, files |
 | Improve | Gaps between how you work and what helps (review after edits, note searches, repeated corrections, tool errors) |
+| Settings | Every option below, changed in place (pickers and text fields) |
 
 **Details** opens a finding inside the sidebar: the breakdown behind it, the recommended action, a
 prompt you can copy, and an optional AI explanation. Nothing is posted to your conversation unless
@@ -40,16 +41,16 @@ Before installing any mod, you can list what it does without running it:
 
 ## Use
 
-`/chronicle [now|cost|tips|standup|improve|refresh|purge]`
+`/chronicle [now|cost|tips|standup|improve|settings|refresh|purge]`
 
-Keys: `1`–`5` tabs, `r` re-index, `a` AI summary, Esc closes. In a detail view: `b` back,
+Keys: `1`–`6` tabs, `r` re-index, `a` AI summary, Esc closes. In a detail view: `b` back,
 `c` copy prompt, `g` generate / regenerate the explanation.
 
 `/chronicle purge` deletes everything this mod stored (see [PRIVACY.md](PRIVACY.md)).
 
 ## Settings
 
-Set these in `/config` or `/plugin` → Installed → ccmod-chronicle → Configure. With `--plugin-dir`,
+Change these in the **Settings** tab (`6` or `/chronicle settings`), in `/config`, or in `/plugin` → Installed → ccmod-chronicle → Configure. With `--plugin-dir`,
 they live under `pluginConfigs["ccmod-chronicle@inline"]` in `~/.claude/settings.json`.
 Changing one reloads the mod; the pane comes back where it was.
 

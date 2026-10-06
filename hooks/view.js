@@ -2,6 +2,7 @@
 // register.js and the strings function `model.t`, so this file never touches the mods API.
 
 import { CREDIT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS } from './ai-config.js'
+import { SETTINGS_SPEC } from './settings-spec.js'
 
 export const TABS = [
   { id: 'now', label: 'Now', hotkey: '1' },
@@ -9,6 +10,7 @@ export const TABS = [
   { id: 'tips', label: 'Tips', hotkey: '3' },
   { id: 'standup', label: 'Standup', hotkey: '4' },
   { id: 'improve', label: 'Improve', hotkey: '5' },
+  { id: 'settings', label: 'Settings', hotkey: '6' },
 ]
 
 const MARK = { high: '●', mid: '◐', low: '○' }
@@ -73,6 +75,7 @@ function statusLine(el, model, h) {
 
 function body(el, model, h) {
   if (model.tab === 'standup') return standup(el, model, h)
+  if (model.tab === 'settings') return settingsTab(el, model, h)
   const list = model.lists[model.tab] || []
   if (!list.length) return [el.Text({ dimColor: true, children: [model.t(model.tab === 'now' ? 'emptyNow' : 'emptyList')] })]
   return list.map((f) => findingCard(el, model.t, f, h))
@@ -226,4 +229,32 @@ function settingsRow(el, model, h) {
       Text({ dimColor: true, children: [t('sessionUsage', aiUsage)] }),
     ],
   })
+}
+
+// Settings tab: one control per userConfig option; a change is saved through h.onSetting.
+function settingsTab(el, model, h) {
+  const { Box, Text } = el
+  const { t } = model
+  return [
+    Text({ dimColor: true, children: [t('settingsIntro')] }),
+    ...SETTINGS_SPEC.map((spec) => Box({
+      key: 'setting-' + spec.key,
+      flexDirection: 'column',
+      children: [settingControl(el, t, spec, model.config[spec.key], h), Text({ dimColor: true, children: ['  ' + t('cfgHelp_' + spec.key)] })],
+    })),
+  ]
+}
+
+function settingControl(el, t, spec, value, h) {
+  const { Select, Input } = el
+  const key = 'set-' + spec.key
+  const label = t('cfg_' + spec.key)
+  const save = (v) => h.onSetting(spec.key, v)
+  if (spec.kind === 'select') {
+    return Select({ key, label, value: String(value), options: spec.options.map((o) => ({ value: o, label: CREDIT_MODELS.has(o) ? t('creditLabel', { model: o }) : o })), onSelect: save })
+  }
+  if (spec.kind === 'bool') {
+    return Select({ key, label, value: value ? 'on' : 'off', options: [{ value: 'on', label: t('settingOn') }, { value: 'off', label: t('settingOff') }], onSelect: save })
+  }
+  return Input({ key, label, value: clean(value), submitLabel: t('settingSave'), onSubmit: save })
 }

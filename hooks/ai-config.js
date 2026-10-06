@@ -40,7 +40,10 @@ export function mergeSetting(settings, field, value) {
   return normalizeSettings({ ...current, [field]: value })
 }
 
-const FIELDS = ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'language']
+// Every userConfig field, as the Settings tab can change them (tests keep this equal to SETTING_KEYS).
+export const FIELDS = ['language', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands', 'excludeProjects', 'retentionDays']
+// The fields applied in place; the others take effect when the options change reloads the mod.
+export const LIVE_FIELDS = new Set(['language', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'])
 
 // The userConfig field a /config key names, when it is one of ours. A --plugin-dir load may key
 // the plugin as `<name>` or `<name>@inline`, so both `<name>.<field>` and `<name>@x.<field>` match.

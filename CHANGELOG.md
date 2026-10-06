@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Settings tab (`6` or `/chronicle settings`): every option can be changed from the sidebar, with
+  pickers for fixed choices and on/off, and text fields for lists and numbers. Values are checked
+  before they are saved to this plugin's `/config` options; language and AI settings apply at once.
+
 ## 0.3.0
 
 First public release.

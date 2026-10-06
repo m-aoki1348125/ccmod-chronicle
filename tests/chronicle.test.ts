@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { DIGEST, NOW_ISO } from './fixture.ts'
+import { SETTING_KEYS } from '../hooks/settings-spec.js'
 
 const PANE = {
   plugin: 'ccmod-chronicle',
@@ -15,7 +16,7 @@ const WITH_REVIEWERS = { options: { reviewerAgents: 'code-reviewer,security-revi
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
-function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[]; version?: string } = {}) {
+function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[]; version?: string; extraRows?: any[] } = {}) {
   const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[], modelCalls: [] as any[], configSets: [] as any[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
@@ -50,7 +51,7 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
   on('tool.call', () => ({ result: 'ok' }))
   on('config.set', ($: any, e: any) => { rec.configSets.push([e.key, e.value]); return { value: e.value } })
   // A --plugin-dir load may key our /config rows as `<name>@inline.<field>`.
-  on('config.list', () => ({ value: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'excludeProjects'].map((f) => ({ key: 'ccmod-chronicle@inline.' + f, label: f, kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle', tier: 'user' }, isLocked: false })) }))
+  on('config.list', () => ({ value: [...(opts.extraRows ?? []), ...SETTING_KEYS.map((f) => ({ key: 'ccmod-chronicle@inline.' + f, label: f, kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle', tier: 'user' }, isLocked: false }))] }))
   return { rec, clock }
 }
 
@@ -569,5 +570,83 @@ test('Standup AI summary withholds titles, recaps and commits that contain paths
   await ui.press({ key: 'ai-standup' })
   expect(rec.modelPrompts.at(-1)).toMatch(/Ship the settings page/)
   expect(rec.modelPrompts.at(-1)).not.toMatch(/\/home\/alice/)
+  await ui.unmount()
+})
+
+test('the Settings tab shows every option and saves picks and typed values', async ($, on) => {
+  const { rec, clock } = stubEngine(on, { claudeLanguage: 'Japanese' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const key of SETTING_KEYS) expect(await ui.find({ key: 'set-' + key })).toBeDefined()
+  await ui.select({ key: 'set-autoExplain', value: 'off' })
+  await ui.input({ key: 'set-reviewerAgents', text: ' code-reviewer, ,qa-agent ' })
+  await ui.input({ key: 'set-retentionDays', text: '365' })
+  expect(rec.configSets).toEqual([
+    ['ccmod-chronicle@inline.autoExplain', false],
+    ['ccmod-chronicle@inline.reviewerAgents', 'code-reviewer,qa-agent'],
+    ['ccmod-chronicle@inline.retentionDays', 365],
+  ])
+  // Switching the language applies at once, before the reload.
+  await ui.select({ key: 'set-language', value: 'en' })
+  expect(await ui.find({ type: 'Text', text: /Saved to this plugin/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the Settings tab refuses values it cannot store', async ($, on) => {
+  const { rec, clock } = stubEngine(on, { claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.input({ key: 'set-retentionDays', text: '1.5' })
+  await ui.input({ key: 'set-retentionDays', text: '99999' })
+  await ui.input({ key: 'set-memoryCueWords', text: 'ok\u0007bell' })
+  expect(rec.configSets).toEqual([])
+  expect(rec.toasts.some((x) => /whole number from 0 to 3650/.test(x))).toBe(true)
+  await ui.unmount()
+})
+
+test('removing an exclusion from the Settings tab says so', { options: { excludeProjects: '/w/a,/w/b' } }, async ($, on) => {
+  const { rec, clock } = stubEngine(on, { claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.input({ key: 'set-excludeProjects', text: '/w/a' })
+  expect(rec.configSets.at(-1)).toEqual(['ccmod-chronicle@inline.excludeProjects', '/w/a'])
+  expect(rec.toasts.at(-1)).toMatch(/1 exclusion\(s\) removed/)
+  await ui.unmount()
+})
+
+test('a row with our key prefix but owned by another plugin is never written', async ($, on) => {
+  const fork = { key: 'ccmod-chronicle@evil.aiModel', label: 'aiModel', kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle-evil', tier: 'user' }, isLocked: false }
+  const { rec, clock } = stubEngine(on, { extraRows: [fork] })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.select({ key: 'set-aiModel', value: 'sonnet' })
+  expect(rec.configSets).toEqual([['ccmod-chronicle@inline.aiModel', 'sonnet']])
+  await ui.unmount()
+})
+
+test('if two rows of our name cannot be told apart, nothing is written', async ($, on) => {
+  const twin = { key: 'ccmod-chronicle@evil.aiModel', label: 'aiModel', kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle', tier: 'user' }, isLocked: false }
+  const { rec, clock } = stubEngine(on, { extraRows: [twin], claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.select({ key: 'set-aiModel', value: 'sonnet' })
+  expect(rec.configSets).toEqual([])
+  expect(rec.toasts.at(-1)).toMatch(/more than one plugin uses this name/)
+  await ui.unmount()
+})
+
+test('an installed copy and a --plugin-dir copy of our name are refused, not guessed', async ($, on) => {
+  const installed = { key: 'ccmod-chronicle.aiModel', label: 'aiModel', kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle', tier: 'user' }, isLocked: false }
+  const { rec, clock } = stubEngine(on, { extraRows: [installed], claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'settings' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.select({ key: 'set-aiModel', value: 'sonnet' })
+  expect(rec.configSets).toEqual([])
   await ui.unmount()
 })
