@@ -41,7 +41,7 @@ test('now warns on context, rate limit, unreviewed code and risky commands', asy
     unreviewed: ['/a.ts', '/b.ts', '/c.py'],
     risky: { 'force push': 1 },
     permissionMode: 'auto',
-  }))
+  }, MINE))
   expect(got).toEqual(['now-context', 'now-rate-five_hour', 'now-unreviewed', 'now-risky-force push'])
 })
 
@@ -75,11 +75,13 @@ test('reviewer detection accepts plugin-scoped agent names', async () => {
 
 test('generic defaults: no recall check without a note tool, no review checks without reviewers', async () => {
   expect(ids(buildImprove(DIGEST))).not.toContain('improve-recall')
+  expect(ids(buildImprove(DIGEST))).not.toContain('improve-review-gate')
   const noReviewers = makeCtx('en', ruleConfig({ reviewerAgents: '' }))
   expect(ids(buildImprove(DIGEST, noReviewers))).not.toContain('improve-review-gate')
   const live = { context: null, rateLimits: [], unreviewed: ['/a.ts', '/b.ts', '/c.ts'], risky: {} }
   expect(ids(buildNow(live, noReviewers))).toEqual([])
-  expect(buildNow(live)[0].action).toMatch(/code-reviewer, security-reviewer/)
+  expect(buildNow(live)).toEqual([])
+  expect(buildNow(live, MINE)[0].action).toMatch(/code-reviewer, security-reviewer, qa-agent/)
 })
 
 test('English and Japanese render the same findings with their own wording and doc links', async () => {

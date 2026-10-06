@@ -45,6 +45,7 @@ CORRECTION_RE = re.compile(
     r"|not working|still (not|broken|failing|wrong)|doesn'?t work|that'?s (wrong|not right)|try again|not fixed)",
     re.IGNORECASE,
 )
+BUILTIN_RISKY_LABELS = {label for _, label in RISKY_PATTERNS}
 # A slash command: "/name" or "/plugin:name" as the first word, not a path like /Users/x or /home/x.
 SLASH_RE = re.compile(r"^/[A-Za-z][\w:-]*(?=\s|$)")
 COMMAND_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
@@ -62,14 +63,16 @@ class IndexOptions:
     retention_days: int = 0  # 0: keep every summary
 
     def cache_key(self) -> list:
-        return [list(self.excludes), [label for _, label in self.risky], self.memory_re.pattern]
+        # Memory cues only affect history counts, which are recomputed every run.
+        return [list(self.excludes), [label for _, label in self.risky]]
 
 
 def make_options(excludes=(), risky=(), memory_cues=(), retention_days=0) -> IndexOptions:
     cues = [c for c in memory_cues if c.strip()] or list(DEFAULT_MEMORY_CUES)
     return IndexOptions(
         excludes=tuple(sorted({normalize_path(e) for e in excludes if e.strip()})),
-        risky=tuple((re.compile(re.escape(r)), r) for r in sorted({r.strip() for r in risky if r.strip()})),
+        # A user string equal to a built-in label would count the same command twice.
+        risky=tuple((re.compile(re.escape(r)), r) for r in sorted({r.strip() for r in risky if r.strip()} - BUILTIN_RISKY_LABELS)),
         memory_re=re.compile("|".join(re.escape(c.strip()) for c in cues), re.IGNORECASE),
         retention_days=max(0, int(retention_days or 0)),
     )
@@ -203,9 +206,12 @@ def record_tool_use(stats: SessionStats, name: str, inp: dict, opts: IndexOption
             if pat.search(cmd):
                 stats.risky[label] += 1
         for segment in COMMAND_SPLIT_RE.split(cmd.strip()):
-            head = segment.split()[0] if segment.split() else ""
-            if head and "=" not in head and len(head) <= 40:
-                stats.bash_heads[os.path.basename(head)] += 1
+            # Skip leading VAR=value assignments; count the program, without a Windows .exe suffix.
+            words = [w for w in segment.split() if "=" not in w]
+            head = words[0] if words else ""
+            if head and len(head) <= 40:
+                name = re.split(r"[\\/]", head)[-1]
+                stats.bash_heads[name[:-4] if name.lower().endswith(".exe") else name] += 1
 
 
 def record_assistant(stats: SessionStats, d: dict, opts: IndexOptions) -> None:
@@ -363,9 +369,11 @@ def within_retention(entry: dict, cutoff: datetime | None, has_transcript: bool)
         return True
     end = entry["data"].get("end")
     try:
-        return datetime.fromisoformat(str(end).replace("Z", "+00:00")) >= cutoff
+        ended = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
     except ValueError:
         return False
+    # A timestamp without a zone is read as local time rather than failing the comparison.
+    return (ended if ended.tzinfo else ended.astimezone()) >= cutoff
 
 
 def scan(claude_dir: Path, sessions: dict, opts: IndexOptions) -> tuple[int, int, set]:
@@ -400,7 +408,11 @@ def build(claude_dir: Path, out_dir: Path, opts) -> dict:
     scanned, reused, seen = scan(claude_dir, sessions, opts)
     # Summaries outlive their transcripts only within the retention window (0 keeps them all).
     cutoff = datetime.now().astimezone() - timedelta(days=opts.retention_days) if opts.retention_days else None
-    sessions = {sid: e for sid, e in sessions.items() if within_retention(e, cutoff, sid in seen)}
+    sessions = {
+        sid: e for sid, e in sessions.items()
+        # Excluded markers only matter while their transcript exists.
+        if within_retention(e, cutoff, sid in seen) and (sid in seen or not e.get("excluded"))
+    }
     write_atomic(cache_path, {"schema": SCHEMA_VERSION, "options": opts.cache_key(), "sessions": sessions})
     kept = [v["data"] for v in sessions.values() if "data" in v]
     digest = {

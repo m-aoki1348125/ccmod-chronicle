@@ -29,7 +29,8 @@ const list = (value) => String(value ?? '').split(',').map((s) => s.trim()).filt
 
 // Defaults suit anyone; people with their own agents or note tools extend them in /config.
 export const RULE_DEFAULTS = Object.freeze({
-  reviewerAgents: 'code-reviewer,security-reviewer',
+  // Claude Code ships no review agent, so the review checks stay off until you name yours.
+  reviewerAgents: '',
   memoryTools: '',
   memoryCueWords: '',
   extraRiskyCommands: '',

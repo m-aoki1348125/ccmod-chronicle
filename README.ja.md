@@ -59,11 +59,11 @@ claude plugin install session-chronicle@session-chronicle
 | `aiEffort` | `low` | `low`、`medium`、`high`。返答の上限も連動します（700 / 1200 / 2000 tokens） |
 | `autoExplain` | `true` | 詳しく を開いた時点で解説を生成。オフなら `g` で生成 |
 | `cacheExplanations` | `true` | Cost / Tips / Improve の解説を、数値が変わるまで再利用 |
-| `reviewerAgents` | `code-reviewer,security-reviewer` | レビューとして数えるサブエージェント名。空にするとレビューの確認をしません |
+| `reviewerAgents` | 空 | レビューとして数えるサブエージェント名（例：`code-reviewer,security-reviewer`）。Claude Code には同梱されていないため、設定するまでレビューの確認はしません |
 | `memoryTools` | 空 | メモの検索に使う MCP ツールの接頭辞や CLI 名（例：`mcp__notes__,notes`）。空なら検索の確認をしません |
 | `memoryCueWords` | 空 | 「過去の文脈が必要」を表す言葉。空なら英語と日本語の既定の言葉を使います |
 | `extraRiskyCommands` | 空 | 追加で警告するコマンドの文字列（例：`terraform apply`） |
-| `retentionDays` | `0` | 会話ログが消えた後、要約を何日残すか。`0` は Claude Code の `cleanupPeriodDays` に従います |
+| `retentionDays` | `0` | Claude Code が会話ログを消したセッションの要約を、セッションの終了から何日まで残すか。`0` は Claude Code の `cleanupPeriodDays`（既定 30 日）を使うので、要約は会話ログと一緒に消えます |
 | `excludeProjects` | 空 | 集計から完全に外すプロジェクトのパスの接頭辞（カンマ区切り。顧客案件など） |
 
 ## トークンの消費

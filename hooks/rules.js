@@ -15,6 +15,7 @@ export const THRESHOLDS = {
   unreviewedEdits: 3,
   reviewerRatioLow: 0.1,
   correctionHigh: 10,
+  correctionShare: 0.02,
   longTurnMs: 30 * 60 * 1000,
   toolErrorsHigh: 100,
   cheapShareLow: 0.15,
@@ -56,7 +57,9 @@ export function isReviewer(agentType, reviewers) {
 // Built-in risky commands plus the user's extra substrings (labelled by the substring itself).
 export function riskyCommands(cfg) {
   const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return [...RISKY_COMMANDS, ...cfg.extraRisky.map((s) => [new RegExp(escape(s)), s])]
+  const builtIn = new Set(RISKY_COMMANDS.map(([, label]) => label))
+  // A string equal to a built-in label would count the same command twice.
+  return [...RISKY_COMMANDS, ...cfg.extraRisky.filter((s) => !builtIn.has(s)).map((s) => [new RegExp(escape(s)), s])]
 }
 
 // Fold every session into one set of totals.
@@ -295,7 +298,9 @@ function recallFindings(tot, h, { t, doc, cfg }) {
 }
 
 function correctionFindings(h, { t, doc }) {
-  if ((h.correctionPrompts || 0) < THRESHOLDS.correctionHigh) return []
+  // Phrases like "try again" turn up in any long history, so require a share of prompts as well.
+  const n = h.correctionPrompts || 0
+  if (n < THRESHOLDS.correctionHigh || n < (h.prompts || 0) * THRESHOLDS.correctionShare) return []
   return [finding({
     id: 'improve-corrections', severity: 'mid',
     title: t('correctionsTitle', { n: h.correctionPrompts }),

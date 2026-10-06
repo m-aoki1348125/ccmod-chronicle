@@ -67,8 +67,8 @@
     "reviewerAgents": {
       "type": "string",
       "title": "Review agents",
-      "description": "Comma-separated subagent names that count as code review (e.g. code-reviewer,security-reviewer). Empty turns the review checks off.",
-      "default": "code-reviewer,security-reviewer"
+      "description": "Comma-separated subagent names that count as code review (e.g. code-reviewer,security-reviewer). Claude Code ships none, so the review checks stay off until you name yours.",
+      "default": ""
     },
     "memoryTools": {
       "type": "string",

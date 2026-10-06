@@ -9,6 +9,9 @@ const PANE = {
   props: { title: 'Chronicle', isFocused: true, bodyColumns: 70, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+// Claude Code ships no review agent; tests that exercise review checks name the usual pair.
+const WITH_REVIEWERS = { options: { reviewerAgents: 'code-reviewer,security-reviewer' } }
+
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
@@ -93,7 +96,7 @@ test('standup shows the session and git commits, AI payload drops prompt titles'
   await ui.unmount()
 })
 
-test('dismiss hides a finding and persists it', async ($, on) => {
+test('dismiss hides a finding and persists it', WITH_REVIEWERS, async ($, on) => {
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'improve' })
@@ -105,7 +108,7 @@ test('dismiss hides a finding and persists it', async ($, on) => {
   await ui.unmount()
 })
 
-test('apply asks Claude through a prompt instead of writing files', async ($, on) => {
+test('apply asks Claude through a prompt instead of writing files', WITH_REVIEWERS, async ($, on) => {
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'improve' })
@@ -115,7 +118,7 @@ test('apply asks Claude through a prompt instead of writing files', async ($, on
   await ui.unmount()
 })
 
-test('now tab tracks unreviewed code edits and clears after a reviewer runs', async ($, on) => {
+test('now tab tracks unreviewed code edits and clears after a reviewer runs', WITH_REVIEWERS, async ($, on) => {
   const { clock } = stubEngine(on)
   on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
   await start($, clock)
@@ -162,7 +165,7 @@ test('git runs with repo hooks neutralized and excludes are passed as one argv e
   await ui.unmount()
 })
 
-test('dismiss merges with what another session saved, and now-* stays session-only', async ($, on) => {
+test('dismiss merges with what another session saved, and now-* stays session-only', WITH_REVIEWERS, async ($, on) => {
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   // Another session saved a dismissal after this one started.
@@ -226,7 +229,7 @@ test('詳しく shows the detail inside the pane and sends nothing to the conver
   expect(explains[0]).toMatch(/信頼できないデータ/)
 })
 
-test('detail of a live warning copies its prompt and keeps file names out of the AI call', async ($, on) => {
+test('detail of a live warning copies its prompt and keeps file names out of the AI call', WITH_REVIEWERS, async ($, on) => {
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   for (const f of ['/w/alpha.ts', '/w/beta.ts', '/w/gamma.py']) await $.tool.call({ tool: 'Edit', file_path: f, old_string: 'x', new_string: 'y' })
@@ -242,7 +245,7 @@ test('detail of a live warning copies its prompt and keeps file names out of the
   await ui.unmount()
 })
 
-test('switching tabs leaves the detail view', async ($, on) => {
+test('switching tabs leaves the detail view', WITH_REVIEWERS, async ($, on) => {
   const { clock } = stubEngine(on)
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'improve' })
@@ -274,7 +277,7 @@ test('a failed explanation is retried on the next 詳しく press', async ($, on
   await ui.unmount()
 })
 
-test('a live warning detail shows it resolved, and /clear closes the detail', async ($, on) => {
+test('a live warning detail shows it resolved, and /clear closes the detail', WITH_REVIEWERS, async ($, on) => {
   const { clock } = stubEngine(on)
   on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
   on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
@@ -292,7 +295,7 @@ test('a live warning detail shows it resolved, and /clear closes the detail', as
   await ui.unmount()
 })
 
-test('適用を依頼 leaves the detail view so the next /chronicle opens the list', async ($, on) => {
+test('適用を依頼 leaves the detail view so the next /chronicle opens the list', WITH_REVIEWERS, async ($, on) => {
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'improve' })
@@ -463,7 +466,7 @@ test('/clear resets the session token total', async ($, on) => {
   await ui.unmount()
 })
 
-test('after a reload, a restored detail whose live finding is gone is not reopened', async ($, on) => {
+test('after a reload, a restored detail whose live finding is gone is not reopened', WITH_REVIEWERS, async ($, on) => {
   const { clock } = stubEngine(on)
   on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
   await start($, clock)
@@ -479,7 +482,7 @@ test('after a reload, a restored detail whose live finding is gone is not reopen
   await ui.unmount()
 })
 
-test('moving on before the re-index cancels a detail waiting to be restored', async ($, on) => {
+test('moving on before the re-index cancels a detail waiting to be restored', WITH_REVIEWERS, async ($, on) => {
   const { clock } = stubEngine(on)
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'cost' })

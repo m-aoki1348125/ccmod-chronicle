@@ -26,6 +26,7 @@ const MIN_VERSION = '2.1.287'
 const PYTHONS = ['python3', 'python']
 const WINDOWS_COMMAND_NOT_FOUND = 9009
 const DEFAULT_CLEANUP_DAYS = 30
+const MAX_RETENTION_DAYS = 3650
 const ABSOLUTE_PATH = /^([A-Za-z]:[\\/]|\/)/
 const TAB_IDS = new Set(TABS.map((t) => t.id))
 // Live warnings describe this session only; dismissing them must not persist.
@@ -76,19 +77,20 @@ export function register(on, options) {
   ruleCfg = ruleConfig(options || {})
   risky = riskyCommands(ruleCfg)
   ctx = makeCtx('en', ruleCfg)
-  retentionDays = Math.max(0, Number(options?.retentionDays) || 0)
-  excludes = String(options?.excludeProjects || '').split(/[,:\n]/).map((s) => s.trim()).filter(Boolean)
+  retentionDays = clampDays(options?.retentionDays)
+  // Comma or newline only: a ':' would split Windows paths such as C:\\Clients.
+  excludes = String(options?.excludeProjects || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
 
   on('session.start', async ($, e, next) => {
     await startSession($)
     return next(e)
-  })
+  }).catch(passThrough)
 
   // /clear, /resume and /branch end the conversation without a new session.start.
   on('session.end', async ($, e, next) => {
     await resetSession($)
     return next(e)
-  })
+  }).catch(passThrough)
 
   // /config (or this pane's model picker) changed one of our fields: use it from the next call.
   on('config.set', async ($, e, next) => onConfigSet($, e, await next(e))).catch(passThrough)
@@ -99,7 +101,7 @@ export function register(on, options) {
     live = { ...live, context: e.context, rateLimits: e.rateLimits || [] }
     $.ui.invalidate('ui.render')
     return next(e)
-  })
+  }).catch(passThrough)
 
   on('tool.call', async ($, e, next) => {
     onToolCall($, e)
@@ -396,8 +398,13 @@ async function indexPaths($) {
 // Summaries are kept as long as Claude Code keeps transcripts, unless retentionDays says otherwise.
 function retention() {
   if (retentionDays > 0) return retentionDays
-  const days = Number(claudeSettings.cleanupPeriodDays)
-  return Number.isFinite(days) && days > 0 ? days : DEFAULT_CLEANUP_DAYS
+  return clampDays(claudeSettings.cleanupPeriodDays) || DEFAULT_CLEANUP_DAYS
+}
+
+// Whole days within 0..MAX_RETENTION_DAYS, so the indexer never gets a fraction or an overflow.
+function clampDays(value) {
+  const n = Math.floor(Number(value))
+  return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_RETENTION_DAYS) : 0
 }
 
 // One argv element per value, so a value starting with '-' can never become an option.
@@ -428,6 +435,8 @@ async function runIndexer($, args) {
 
 // /chronicle purge: delete the index, the explanation cache, dismissals and the saved view.
 async function purgeAll($) {
+  // A running index would write the files straight back.
+  if (status.indexing) return ctx.t('purgeBusy')
   try {
     const { outDir } = await indexPaths($)
     const run = await runIndexer($, ['--purge', '--out-dir=' + outDir])

@@ -58,6 +58,7 @@ export const EN = {
   noHome: 'No home directory found (HOME / USERPROFILE), so there is nowhere to index to',
   digestBig: 'digest.json is over 3.5 MiB (limit 4 MiB); lower retentionDays',
   purged: 'Deleted the index, the explanation cache, dismissed findings and this session\'s saved view',
+  purgeBusy: 'Indexing is running; try /chronicle purge again when it finishes',
   purgeFailed: (p) => 'Could not delete everything: ' + p.error,
   oldVersion: (p) => `Claude Code ${p.v} is older than ${p.min}; mods may not work`,
   noPane: (p) => `session-chronicle draws a sidebar, which this app does not show. Top suggestions:\n${p.lines}`,

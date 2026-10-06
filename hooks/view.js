@@ -115,7 +115,7 @@ function standup(el, model, h) {
     flexDirection: 'column',
     children: [
       Text({ bold: true, children: [clean('■ ' + folder(row.project))] }),
-      ...row.sessions.slice(-4).map((s) => Text({ children: [clean('  ・' + s.title)] })),
+      ...row.sessions.slice(-4).map((s) => Text({ children: [clean('  • ' + s.title)] })),
       ...row.sessions.filter((s) => s.away).slice(-1).map((s) => Text({ dimColor: true, children: [clean('  ' + t('recap') + s.away)] })),
       row.commits.length ? Text({ dimColor: true, children: [clean('  ' + t('commits') + row.commits.slice(0, 5).join(' / '))] }) : null,
       row.files.length ? Text({ dimColor: true, wrap: 'truncate-end', children: [clean('  ' + t('files') + row.files.join(', '))] }) : null,
@@ -141,7 +141,7 @@ function renderDetail(el, model, h) {
   const { t } = model
   const f = model.detail
   const details = f.details || []
-  const shown = details.slice(0, DETAIL_MAX).map((d) => Text({ children: [clean('  ・' + d)] }))
+  const shown = details.slice(0, DETAIL_MAX).map((d) => Text({ children: [clean('  • ' + d)] }))
   if (details.length > DETAIL_MAX) shown.push(Text({ dimColor: true, children: [t('more', { n: details.length - DETAIL_MAX })] }))
   return Box({
     flexDirection: 'column',

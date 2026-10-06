@@ -54,6 +54,7 @@ export const JA = {
   noHome: 'ホームディレクトリ（HOME / USERPROFILE）が見つからないため集計先を決められません',
   digestBig: 'digest.json が 3.5MiB を超えました（上限 4MiB）。retentionDays を下げてください',
   purged: '集計結果・解説のキャッシュ・無視した指摘・このセッションの保存状態を削除しました',
+  purgeBusy: '集計中のため削除できません。終わってから /chronicle purge をやり直してください',
   purgeFailed: (p) => '一部を削除できませんでした: ' + p.error,
   oldVersion: (p) => `Claude Code ${p.v} は ${p.min} より古いため、mod が動かない可能性があります`,
   noPane: (p) => `session-chronicle はサイドバーを描画しますが、このアプリでは表示されません。主な提案:\n${p.lines}`,

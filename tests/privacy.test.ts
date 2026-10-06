@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { shareableFinding, stripLinks, copyText } from '../hooks/privacy.js'
 import { buildTips } from '../hooks/catalog.js'
+import { makeCtx, ruleConfig } from '../hooks/i18n.js'
 import { buildCost, buildImprove } from '../hooks/rules.js'
 import { DIGEST } from './fixture.ts'
 
@@ -39,7 +40,7 @@ test('fixed wording with single slashes is still sent', async () => {
 
 test('review-gate details name only reviewer agents', async () => {
   const d = { ...DIGEST, sessions: DIGEST.sessions.map((s) => ({ ...s, agents: { 'code-reviewer': 1, 'acme-police-case-analyzer': 4 } })) }
-  const gate = buildImprove(d).find((f) => f.id === 'improve-review-gate')
+  const gate = buildImprove(d, makeCtx('en', ruleConfig({ reviewerAgents: 'code-reviewer' }))).find((f) => f.id === 'improve-review-gate')
   expect(gate?.details.join('\n')).not.toMatch(/acme/)
   // Two fixture sessions x 4 calls each.
   expect(gate?.details).toContain('other agents: 8')

@@ -217,6 +217,28 @@ class RobustnessTest(unittest.TestCase):
         self.assertEqual([s["project"] for s in digest["sessions"]], [])
 
 
+    def test_bash_heads_skip_assignments_and_exe_and_risky_is_not_double_counted(self):
+        write_jsonl(self.proj / "s.jsonl", [
+            {"type": "user", "cwd": "/w", "message": {"content": "a"}},
+            assistant([("Bash", {"command": "FOO=1 notes search x && C:\\tools\\notes.exe get y"}), ("Bash", {"command": "sudo ls"})]),
+        ])
+        [s] = ci.build(self.claude, self.root / "out", ci.make_options(risky=["sudo"]))["sessions"]
+        self.assertEqual(s["bashHeads"].get("notes"), 2)
+        self.assertEqual(s["risky"], {"sudo": 1})
+
+    def test_naive_timestamps_and_stale_excluded_markers(self):
+        write_jsonl(self.proj / "naive.jsonl", [{"type": "user", "cwd": "/w", "timestamp": "2020-01-01T00:00:00", "message": {"content": "a"}}])
+        write_jsonl(self.proj / "sec.jsonl", [{"type": "user", "cwd": "/w/secret", "message": {"content": "b"}}])
+        out = self.root / "out"
+        opts = ci.make_options(excludes=["/w/secret"], retention_days=30)
+        ci.build(self.claude, out, opts)
+        (self.proj / "naive.jsonl").unlink()
+        (self.proj / "sec.jsonl").unlink()
+        digest = ci.build(self.claude, out, opts)
+        self.assertEqual(digest["sessions"], [])
+        self.assertEqual(json.loads((out / "cache.json").read_text(encoding="utf-8"))["sessions"], {})
+
+
 class OptionsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

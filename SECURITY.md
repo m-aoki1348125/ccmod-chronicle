@@ -16,10 +16,10 @@ The `hooks:` and `calls:` lines list the events the mod handles and every mods A
 
 | Event | Why | Changes the event? |
 |---|---|---|
-| `session.start`, `session.end` | Register `/chronicle`, restore or reset the pane | No |
+| `session.start`, `session.end` | Register `/chronicle`, restore or reset the pane | No; passes the event on, also when the hook fails (`.catch`) |
 | `command.run` (`/chronicle` only) | Open the pane | Answers its own command |
 | `tool.call`, `agent.spawn` | Notice code edits, risky Bash commands and review agents | No: observes and passes the call on, also when the hook fails (`.catch`) |
-| `session.measure` | Context and plan-limit usage for the Now tab | No |
+| `session.measure` | Context and plan-limit usage for the Now tab | No; passes it on, also on failure (`.catch`) |
 | `config.set` | Apply a changed option without waiting for the reload | No |
 | `ui.render` (its own pane) | Draw the sidebar | Draws only its pane |
 
@@ -32,11 +32,12 @@ It never approves or denies tool calls and does not rewrite prompts.
 | `$.process.run` | `python3`/`python indexer/chronicle_index.py` (argv, no shell); `git log` for Standup, with repository hooks (`log.showSignature`, `core.fsmonitor`, `diff.external`) turned off and only for absolute paths |
 | `$.fs.read` | `~/.claude/chronicle/digest.json` |
 | `$.env.get` | `CLAUDE_CONFIG_DIR`, `HOME`, `USERPROFILE` only, to find `~/.claude` |
-| `$.settings.read` | `language` and `cleanupPeriodDays` |
+| `$.settings.read` | Reads the merged settings; uses only `language` and `cleanupPeriodDays`, keeps nothing else |
 | `$.model.complete` | AI summary and explanation, on your press, through Claude Code with your plan or key |
 | `$.prompt.submit` | **Ask Claude to apply** only: a fixed prompt about CLAUDE.md |
 | `$.config.list`, `$.config.set` | The model / effort pickers write this plugin's own options |
-| `$.store`, `$.state` | Dismissals, explanation cache, pane state |
+| `$.store`, `$.state` | Dismissals, explanation cache, pane state; `$.store.delete` for `/chronicle purge` |
+| `$.command.register` | Registers `/chronicle` |
 | `$.ui.*`, `$.clock.*`, `$.session.version/surfaces` | Drawing, timers, version check, text fallback |
 
 It makes no network requests of its own (`$.http` is not used) and sends no telemetry.

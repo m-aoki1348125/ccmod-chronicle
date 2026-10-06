@@ -60,11 +60,11 @@ Changing one reloads the mod; the pane comes back where it was.
 | `aiEffort` | `low` | `low`, `medium`, `high`. The reply cap grows with it (700 / 1200 / 2000 tokens) |
 | `autoExplain` | `true` | Generate the explanation as soon as Details opens. Off: press `g` |
 | `cacheExplanations` | `true` | Reuse explanations of Cost / Tips / Improve findings until their numbers change |
-| `reviewerAgents` | `code-reviewer,security-reviewer` | Subagent names that count as review. Empty turns the review checks off |
+| `reviewerAgents` | empty | Subagent names that count as review (e.g. `code-reviewer,security-reviewer`). Claude Code ships none, so the review checks stay off until you name yours |
 | `memoryTools` | empty | MCP tool prefixes or CLI names you search notes with (e.g. `mcp__notes__,notes`). Empty turns the recall check off |
 | `memoryCueWords` | empty | Words meaning "this needs earlier context". Empty uses built-in English and Japanese words |
 | `extraRiskyCommands` | empty | Extra command substrings to flag (e.g. `terraform apply`) |
-| `retentionDays` | `0` | How long a session summary outlives its transcript. `0` follows Claude Code's `cleanupPeriodDays` |
+| `retentionDays` | `0` | Once Claude Code has deleted a session's transcript, its summary is kept until this many days after the session ended. `0` uses Claude Code's `cleanupPeriodDays` (30 by default), so summaries go when their transcripts do |
 | `excludeProjects` | empty | Comma-separated project path prefixes to leave out entirely (e.g. client work) |
 
 ## Token use
