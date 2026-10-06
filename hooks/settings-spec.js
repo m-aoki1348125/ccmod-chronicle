@@ -1,7 +1,7 @@
 // The Settings tab: every userConfig option, its control, and how a typed value is checked.
 // Pure functions, no mods API. Keys and defaults must match .claude-plugin/plugin.json.
 
-import { EFFORT_OPTIONS, MODEL_OPTIONS } from './ai-config.js'
+import { EFFORT_OPTIONS, MODEL_OPTIONS, PANE_STYLES } from './ai-config.js'
 import { LANGUAGE_OPTIONS } from './i18n.js'
 
 const MAX_RETENTION_DAYS = 3650
@@ -12,6 +12,7 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u20
 // kind: 'select' (fixed options) | 'bool' | 'list' (comma-separated text) | 'number'
 export const SETTINGS_SPEC = Object.freeze([
   { key: 'language', kind: 'select', options: LANGUAGE_OPTIONS, default: 'auto' },
+  { key: 'paneStyle', kind: 'select', options: PANE_STYLES, default: 'simple' },
   { key: 'aiModel', kind: 'select', options: MODEL_OPTIONS, default: 'haiku' },
   { key: 'aiEffort', kind: 'select', options: EFFORT_OPTIONS, default: 'low' },
   { key: 'autoExplain', kind: 'bool', default: true },

@@ -4,7 +4,8 @@ import { LANGUAGE_OPTIONS } from './i18n.js'
 
 export const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus', 'fable']
 export const EFFORT_OPTIONS = ['low', 'medium', 'high']
-export const DEFAULT_SETTINGS = Object.freeze({ model: 'haiku', effort: 'low', autoExplain: true, cacheExplanations: true, language: 'auto' })
+export const PANE_STYLES = ['simple', 'rich']
+export const DEFAULT_SETTINGS = Object.freeze({ model: 'haiku', effort: 'low', autoExplain: true, cacheExplanations: true, language: 'auto', paneStyle: 'simple' })
 // Models billed to usage credits: never called without an explicit press.
 export const CREDIT_MODELS = new Set(['fable'])
 const CACHE_TEXT_MAX = 9000
@@ -31,19 +32,20 @@ export function normalizeSettings(options = {}) {
     autoExplain: typeof options.autoExplain === 'boolean' ? options.autoExplain : DEFAULT_SETTINGS.autoExplain,
     cacheExplanations: typeof options.cacheExplanations === 'boolean' ? options.cacheExplanations : DEFAULT_SETTINGS.cacheExplanations,
     language: pick(options.language, LANGUAGE_OPTIONS, DEFAULT_SETTINGS.language),
+    paneStyle: pick(options.paneStyle, PANE_STYLES, DEFAULT_SETTINGS.paneStyle),
   })
 }
 
 // Settings with one userConfig field replaced (aiModel | aiEffort | autoExplain).
 export function mergeSetting(settings, field, value) {
-  const current = { aiModel: settings.model, aiEffort: settings.effort, autoExplain: settings.autoExplain, cacheExplanations: settings.cacheExplanations, language: settings.language }
+  const current = { aiModel: settings.model, aiEffort: settings.effort, autoExplain: settings.autoExplain, cacheExplanations: settings.cacheExplanations, language: settings.language, paneStyle: settings.paneStyle }
   return normalizeSettings({ ...current, [field]: value })
 }
 
 // Every userConfig field, as the Settings tab can change them (tests keep this equal to SETTING_KEYS).
-export const FIELDS = ['language', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands', 'excludeProjects', 'retentionDays']
+export const FIELDS = ['language', 'paneStyle', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands', 'excludeProjects', 'retentionDays']
 // The fields applied in place; the others take effect when the options change reloads the mod.
-export const LIVE_FIELDS = new Set(['language', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'])
+export const LIVE_FIELDS = new Set(['language', 'paneStyle', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'])
 
 // The userConfig field a /config key names, when it is one of ours. A --plugin-dir load may key
 // the plugin as `<name>` or `<name>@inline`, so both `<name>.<field>` and `<name>@x.<field>` match.

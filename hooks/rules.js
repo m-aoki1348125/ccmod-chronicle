@@ -32,13 +32,13 @@ export const RISKY_COMMANDS = [
 const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.swift', '.kt', '.java', '.c', '.cpp', '.cs', '.rb'])
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0)
-const fmt = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n))
+export const fmt = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n))
 const finding = (f) => ({ severity: 'mid', details: [], ...f })
 const DETAIL_ROWS = 6
-const TRIGGERS = new Set(['auto', 'manual'])
+export const TRIGGERS = new Set(['auto', 'manual'])
 const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0)
 const basename = (p) => String(p || '?').split(/[\\/]/).filter(Boolean).pop() || '?'
-const sessionLabel = (s) => `${basename(s.project)} ${String(s.end || '').slice(5, 10)}`
+export const sessionLabel = (s) => `${basename(s.project)} ${String(s.end || '').slice(5, 10)}`
 // Details are built from counts, model names, dates and project folder names only.
 const topSessions = (digest, score, render) => (digest?.sessions || [])
   .map((s) => ({ s, v: score(s) })).filter((r) => r.v > 0)
@@ -173,7 +173,7 @@ function lateCompactFindings(tot, { t, doc }) {
   })]
 }
 
-const sessionCacheRead = (s) => sum([s.usageByModel, s.subUsage].flatMap((src) => Object.values(src || {}).map((u) => u.cacheRead || 0)))
+export const sessionCacheRead = (s) => sum([s.usageByModel, s.subUsage].flatMap((src) => Object.values(src || {}).map((u) => u.cacheRead || 0)))
 
 // A few very long sessions usually dominate cache reads; name them so they can be split.
 // Evidence uses project folder names and dates only, never transcript text.

@@ -4,7 +4,7 @@ import { FIELDS, settingsField } from '../hooks/ai-config.js'
 
 test('every setting is a known /config field', async () => {
   for (const key of SETTING_KEYS) expect(settingsField('ccmod-chronicle.' + key, 'ccmod-chronicle')).toBe(key)
-  expect(SETTING_KEYS.length).toBe(11)
+  expect(SETTING_KEYS.length).toBe(12)
 })
 
 test('defaults fill in what the options leave unset', async () => {

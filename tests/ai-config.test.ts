@@ -3,7 +3,7 @@ import { resolveLang } from '../hooks/i18n.js'
 import { addUsage, explainCacheKey, isCacheEntry, mergeSetting, normalizeSettings, pruneCache, settingsField, tokensOf } from '../hooks/ai-config.js'
 
 test('unknown option values fall back to the defaults', async () => {
-  expect(normalizeSettings({ aiModel: 'claude-x-9', aiEffort: 'max', autoExplain: 'yes' })).toEqual({ model: 'haiku', effort: 'low', autoExplain: true, cacheExplanations: true, language: 'auto' })
+  expect(normalizeSettings({ aiModel: 'claude-x-9', aiEffort: 'max', autoExplain: 'yes' })).toEqual({ model: 'haiku', effort: 'low', autoExplain: true, cacheExplanations: true, language: 'auto', paneStyle: 'simple' })
   expect(mergeSetting(normalizeSettings({}), 'aiModel', 'opus').model).toBe('opus')
 })
 

@@ -1,7 +1,7 @@
 {
   "name": "ccmod-chronicle",
   "displayName": "ccmod-chronicle",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Sidebar that analyzes how you use Claude Code: live warnings, cost, tips, standup and CLAUDE.md improvements. English and Japanese.",
   "author": {
     "name": "m-aoki",
@@ -28,6 +28,16 @@
         "ja"
       ],
       "default": "auto"
+    },
+    "paneStyle": {
+      "type": "string",
+      "title": "Pane style",
+      "description": "simple: light text view. rich: charts, meters and bordered cards (terminal and desktop app).",
+      "options": [
+        "simple",
+        "rich"
+      ],
+      "default": "simple"
     },
     "aiModel": {
       "type": "string",

@@ -9,6 +9,7 @@ import { renderPane, TABS } from './view.js'
 import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
 import { currentValues, listEntries, parseSetting } from './settings-spec.js'
+import { digestCharts, liveCharts, localDay } from './charts.js'
 import { addUsage, CREDIT_MODELS, LIVE_FIELDS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
 const PANE = 'ccmod-chronicle'
@@ -20,6 +21,8 @@ const ERROR_CHARS = 200
 // Repo-local config could make `git log` launch programs (gpg, fsmonitor); turn those off.
 const GIT_SAFE = ['git', '-c', 'log.showSignature=false', '-c', 'core.fsmonitor=false', '-c', 'diff.external=']
 const AI_TIMEOUT_MS = 60000
+// Pane body width when the surface does not say.
+const DEFAULT_COLS = 60
 const STARTUP_DELAY_MS = 1500
 // Mods need 2.1.287; userConfig `options` pickers need 2.1.271. Tested with 2.1.288.
 const MIN_VERSION = '2.1.287'
@@ -40,6 +43,8 @@ let ruleCfg = ruleConfig()
 let risky = riskyCommands(ruleCfg)
 let ctx = makeCtx('en', ruleCfg)
 let claudeSettings = {}
+// The rich view's digest charts, recomputed only when the digest or the local date changes.
+let chartMemo = null
 // The options this activation was loaded with, shown and edited in the Settings tab.
 let rawOptions = currentValues()
 let retentionDays = 0
@@ -131,7 +136,8 @@ export function register(on, options) {
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const el = $.ui.resolve(e)
-    return renderPane(el, viewModel(await $.clock.now()), handlersFor($))
+    const view = { surface: e.surface, cols: e.props?.bodyColumns }
+    return renderPane(el, viewModel(await $.clock.now(), view), handlersFor($))
   })
 }
 
@@ -313,12 +319,21 @@ function digestFindings() {
 }
 
 // nowMs comes from $.clock.now() so the standup window follows the engine's (and tests') clock.
-function viewModel(nowMs) {
+function viewModel(nowMs, view = {}) {
   const lists = { now: buildNow(live, ctx), ...digestFindings() }
   const hidden = [...dismissed, ...sessionDismissed]
   const ranked = Object.fromEntries(Object.entries(lists).map(([k, v]) => [k, rankFindings(v, hidden)]))
   const detail = resolveDetail(lists)
-  return { t: ctx.t, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
+  return { t: ctx.t, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [], ...richView(view, nowMs) }
+}
+
+// Charts are computed only for the rich style, sized to the pane's body.
+// The digest's charts are kept until the digest or the local date changes; meters are live.
+function richView(view, nowMs) {
+  if (settings.paneStyle !== 'rich') return {}
+  const day = localDay(nowMs)
+  if (!chartMemo || chartMemo.digest !== digest || chartMemo.day !== day) chartMemo = { digest, day, charts: digestCharts(digest, nowMs) }
+  return { surface: view.surface, cols: Math.max(1, view.cols || DEFAULT_COLS), charts: { ...chartMemo.charts, ...liveCharts(live) } }
 }
 
 function resolveDetail(lists) {

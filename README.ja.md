@@ -42,10 +42,16 @@ claude plugin install ccmod-chronicle@ccmod-chronicle
 
 `/chronicle [now|cost|tips|standup|improve|settings|refresh|purge]`
 
-キー：`1`〜`6` でタブ、`r` で再集計、`a` で AI 要約、Esc で閉じる。詳細表示では `b` で戻る、
+キー：`1`〜`6` でタブ、`r` で再集計、`v` でシンプル／リッチ表示の切り替え、`a` で AI 要約、Esc で閉じる。詳細表示では `b` で戻る、
 `c` でプロンプトをコピー、`g` で解説を生成・再生成。
 
 `/chronicle purge` で、この mod が保存したものをすべて削除します（[PRIVACY.md](PRIVACY.md) 参照）。
+
+表示は 2 種類です（`paneStyle`）。既定の **simple** は軽量な文字表示です。**rich** では指摘の上にグラフを出し
+（Now：コンテキストとプラン上限のメーター、Cost：モデル別の出力トークン・セッション別の cache read・
+compaction 時のトークン数、Standup：日ごとのプロンプト数）、指摘を枠付きのカードで表示します。
+グラフはターミナルではセル描画、デスクトップアプリでは SVG（カーソルを重ねると値を表示）で、
+それ以外の画面では simple と同じ文字表示になります。どのグラフにも数値を併記します。
 
 ## 設定
 
@@ -56,6 +62,7 @@ claude plugin install ccmod-chronicle@ccmod-chronicle
 | 設定 | 既定値 | 内容 |
 |---|---|---|
 | `language` | `auto` | `en`、`ja`、または `auto`（Claude Code の `language` 設定に従う） |
+| `paneStyle` | `simple` | `simple`（文字表示）または `rich`（グラフとカード）。`v` で切り替え |
 | `aiModel` | `haiku` | 解説と AI 要約のモデル：`haiku`、`sonnet`、`opus`、`fable`。`fable` は usage credits を消費し、`g` を押したときだけ動きます。詳細表示からも変更できます |
 | `aiEffort` | `low` | `low`、`medium`、`high`。返答の上限も連動します（700 / 1200 / 2000 tokens） |
 | `autoExplain` | `true` | 詳しく を開いた時点で解説を生成。オフなら `g` で生成 |

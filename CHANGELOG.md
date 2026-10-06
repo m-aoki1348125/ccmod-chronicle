@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- Rich view (`paneStyle: rich`, or `v` in the pane): charts above the findings and bordered
+  finding cards. Terminal charts are Raster cells; the desktop app gets SVG with hover values.
+  The simple text view stays the default.
+
 ## 0.4.0
 
 - Settings tab (`6` or `/chronicle settings`): every option can be changed from the sidebar, with

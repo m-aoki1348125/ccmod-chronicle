@@ -43,10 +43,16 @@ Before installing any mod, you can list what it does without running it:
 
 `/chronicle [now|cost|tips|standup|improve|settings|refresh|purge]`
 
-Keys: `1`–`6` tabs, `r` re-index, `a` AI summary, Esc closes. In a detail view: `b` back,
+Keys: `1`–`6` tabs, `r` re-index, `v` simple / rich view, `a` AI summary, Esc closes. In a detail view: `b` back,
 `c` copy prompt, `g` generate / regenerate the explanation.
 
 `/chronicle purge` deletes everything this mod stored (see [PRIVACY.md](PRIVACY.md)).
+
+Two views (`paneStyle`): **simple**, the light text view, is the default. **rich** adds charts
+above the findings (context and plan-limit meters on Now; output tokens by model, cache reads by
+session and tokens at compaction on Cost; prompts per day on Standup) and draws each finding in a
+bordered card. Charts are cell graphics in the terminal and SVG with hover values in the desktop
+app; other surfaces keep the simple view's text. Every chart has its numbers written beside it.
 
 ## Settings
 
@@ -57,6 +63,7 @@ Changing one reloads the mod; the pane comes back where it was.
 | Option | Default | What it does |
 |---|---|---|
 | `language` | `auto` | `en`, `ja`, or `auto` (follows Claude Code's `language` setting) |
+| `paneStyle` | `simple` | `simple` (text) or `rich` (charts and cards); `v` toggles it |
 | `aiModel` | `haiku` | Model for explanations and AI summaries: `haiku`, `sonnet`, `opus`, `fable`. `fable` uses usage credits and only runs when you press `g`. Also switchable from the detail view |
 | `aiEffort` | `low` | `low`, `medium`, `high`. The reply cap grows with it (700 / 1200 / 2000 tokens) |
 | `autoExplain` | `true` | Generate the explanation as soon as Details opens. Off: press `g` |

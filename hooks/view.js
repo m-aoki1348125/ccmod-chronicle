@@ -3,6 +3,7 @@
 
 import { CREDIT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS } from './ai-config.js'
 import { SETTINGS_SPEC } from './settings-spec.js'
+import { CARD_BORDER, richCharts } from './rich-view.js'
 
 export const TABS = [
   { id: 'now', label: 'Now', hotkey: '1' },
@@ -29,8 +30,14 @@ export function renderPane(el, model, h) {
   return Box({
     flexDirection: 'column',
     rowGap: 1,
-    children: [tabRow(el, model, h), statusLine(el, model, h), ...body(el, model, h), aiBlock(el, model, h)].filter(Boolean),
+    children: [tabRow(el, model, h), statusLine(el, model, h), ...charts(el, model), ...body(el, model, h), aiBlock(el, model, h)].filter(Boolean),
   })
+}
+
+const isRich = (model) => model.settings.paneStyle === 'rich'
+
+function charts(el, model) {
+  return isRich(model) ? richCharts(el, { ...model, clean }) : []
 }
 
 function tabRow(el, model, h) {
@@ -69,6 +76,7 @@ function statusLine(el, model, h) {
       Text({ dimColor: true, wrap: 'truncate-end', children: [clean(text)] }),
       model.versionWarning ? Text({ color: 'warning', wrap: 'truncate-end', children: [t('oldVersion', model.versionWarning)] }) : null,
       Button({ key: 'refresh', label: t('refresh'), hotkey: 'r', plain: true, onPress: () => h.onRefresh() }),
+      Button({ key: 'pane-style', label: t(isRich(model) ? 'styleSimple' : 'styleRich'), hotkey: 'v', plain: true, onPress: () => h.onSetting('paneStyle', isRich(model) ? 'simple' : 'rich') }),
     ].filter(Boolean),
   })
 }
@@ -78,10 +86,10 @@ function body(el, model, h) {
   if (model.tab === 'settings') return settingsTab(el, model, h)
   const list = model.lists[model.tab] || []
   if (!list.length) return [el.Text({ dimColor: true, children: [model.t(model.tab === 'now' ? 'emptyNow' : 'emptyList')] })]
-  return list.map((f) => findingCard(el, model.t, f, h))
+  return list.map((f) => findingCard(el, model.t, f, h, isRich(model)))
 }
 
-function findingCard(el, t, f, h) {
+function findingCard(el, t, f, h, rich = false) {
   const { Box, Text, Button, Link } = el
   const actions = [
     Button({ key: 'ask-' + f.id, label: t('ask'), onPress: () => h.onAsk(f) }),
@@ -89,9 +97,11 @@ function findingCard(el, t, f, h) {
     Button({ key: 'hide-' + f.id, label: t('dismiss'), onPress: () => h.onDismiss(f) }),
     f.doc ? Link({ href: f.doc, label: t('docs') }) : null,
   ].filter(Boolean)
+  const frame = rich ? { borderStyle: 'round', borderColor: CARD_BORDER[f.severity] || 'gray', paddingX: 1 } : {}
   return Box({
     key: 'card-' + f.id,
     flexDirection: 'column',
+    ...frame,
     children: [
       Text({ bold: true, ...(COLOR[f.severity] ? { color: COLOR[f.severity] } : {}), children: [clean(`${MARK[f.severity]} ${f.title}`)] }),
       Text({ dimColor: true, children: [clean('  ' + f.evidence)] }),

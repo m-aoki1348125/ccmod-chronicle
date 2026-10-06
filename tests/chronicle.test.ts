@@ -16,7 +16,7 @@ const WITH_REVIEWERS = { options: { reviewerAgents: 'code-reviewer,security-revi
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
-function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[]; version?: string; extraRows?: any[] } = {}) {
+function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[]; version?: string; extraRows?: any[]; digest?: unknown } = {}) {
   const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[], modelCalls: [] as any[], configSets: [] as any[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
@@ -36,7 +36,7 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
     if (opts.slowIndexerMs) await clock.sleep(opts.slowIndexerMs)
     return { value: { exitCode: opts.indexerExit ?? 0, stdout: '{"ok":true}', stderr: opts.indexerExit ? 'boom' : '' } }
   })
-  on('fs.read', ($: any, e: any) => ({ value: e.path.endsWith('digest.json') ? JSON.stringify(DIGEST) : '' }))
+  on('fs.read', ($: any, e: any) => ({ value: e.path.endsWith('digest.json') ? JSON.stringify(opts.digest ?? DIGEST) : '' }))
   on('ui.toast', ($: any, e: any) => { rec.toasts.push(e.text); return { value: undefined } })
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
@@ -648,5 +648,85 @@ test('an installed copy and a --plugin-dir copy of our name are refused, not gue
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.select({ key: 'set-aiModel', value: 'sonnet' })
   expect(rec.configSets).toEqual([])
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`the rich style draws charts and framed cards on ${surface}`, { options: { paneStyle: 'rich' } }, async ($, on) => {
+    const { clock } = stubEngine(on, { claudeLanguage: 'en', surfaces: [surface] })
+    await start($, clock)
+    await $.command.run({ command: 'chronicle', args: 'cost' })
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const chart = surface === 'desktop' ? 'Svg' : 'Raster'
+    expect(await ui.find({ type: 'Text', text: /Output tokens by model/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /opus-5-5 100%/ })).toBeDefined()
+    expect(await ui.find({ type: chart })).toBeDefined()
+    expect(await ui.find({ key: 'card-cost-late-compact' })).toBeDefined()
+    await ui.press({ key: 'tab-standup' })
+    expect(await ui.find({ type: 'Text', text: /Prompts per day/ })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('the simple style draws no charts, and v switches to rich and back', async ($, on) => {
+  const { rec, clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  await ui.press({ key: 'pane-style' })
+  expect(rec.configSets).toEqual([['ccmod-chronicle@inline.paneStyle', 'rich']])
+  expect(await ui.find({ type: 'Raster' })).toBeDefined()
+  await ui.press({ key: 'pane-style' })
+  expect(rec.configSets.at(-1)).toEqual(['ccmod-chronicle@inline.paneStyle', 'simple'])
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the rich Now tab shows the context meter with its status word', { options: { paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  on('session.measure', () => ({ changed: [] }))
+  await start($, clock)
+  await $.session.measure({ context: { tokens: 850000, window: 1000000, percent: 85 }, rateLimits: [{ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-10-03T13:10:00Z' }] })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^85% high$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^40% ok$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /AI use this session/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('rich chart labels from transcripts lose control and bidi characters', { options: { paneStyle: 'rich' } }, async ($, on) => {
+  const evil = { ...DIGEST, sessions: [{ ...DIGEST.sessions[0], usageByModel: { 'x\u202eevil\u0001': { in: 0, out: 5, cacheRead: 0, cacheWrite: 0 } } }] }
+  const { clock } = stubEngine(on, { claudeLanguage: 'en', digest: evil })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^xevil 100%$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a narrow rich pane keeps every chart within its columns', { options: { paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 24 } })
+  const mix = await ui.find({ key: 'mix' })
+  expect(mix?.props.columns).toBeLessThanOrEqual(24)
+  const bar = await ui.find({ key: 'heavy-0' })
+  expect(bar?.props.columns).toBeLessThanOrEqual(24 - 8 - 8 - 2)
+  await ui.press({ key: 'tab-standup' })
+  expect((await ui.find({ key: 'per-day' }))?.props.columns).toBe(24)
+  await ui.unmount()
+})
+
+test('VS Code, which has no Raster, gets the SVG charts', { options: { paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en', surfaces: ['vscode', 'terminal'] })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect(await ui.find({ key: 'card-cost-late-compact' })).toBeDefined()
   await ui.unmount()
 })
