@@ -2,12 +2,13 @@
 // Heavy lifting (reading ~800MB of transcripts) runs in indexer/chronicle_index.py
 // via $.process.run; this module renders the digest plus live session signals.
 
-import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, isReviewer, trackToolCall } from './rules.js'
+import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, isReviewer, riskyCommands, trackToolCall } from './rules.js'
+import { makeCtx, resolveLang, ruleConfig } from './i18n.js'
 import { buildTips } from './catalog.js'
 import { renderPane, TABS } from './view.js'
 import { copyText, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
-import { addUsage, CREDIT_MODELS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, EXPLAIN_SYSTEM, SUMMARY_SYSTEM } from './ai-config.js'
+import { addUsage, CREDIT_MODELS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
 const PANE = 'session-chronicle'
 const INDEX_TIMEOUT_MS = 10 * 60 * 1000
@@ -19,12 +20,25 @@ const ERROR_CHARS = 200
 const GIT_SAFE = ['git', '-c', 'log.showSignature=false', '-c', 'core.fsmonitor=false', '-c', 'diff.external=']
 const AI_TIMEOUT_MS = 60000
 const STARTUP_DELAY_MS = 1500
+// Mods need 2.1.287; userConfig `options` pickers need 2.1.271. Tested with 2.1.288.
+const MIN_VERSION = '2.1.287'
+// `python3` first; Windows installs often only have `python`.
+const PYTHONS = ['python3', 'python']
+const WINDOWS_COMMAND_NOT_FOUND = 9009
+const DEFAULT_CLEANUP_DAYS = 30
+const ABSOLUTE_PATH = /^([A-Za-z]:[\\/]|\/)/
 const TAB_IDS = new Set(TABS.map((t) => t.id))
 // Live warnings describe this session only; dismissing them must not persist.
 const isSessionOnly = (id) => id.startsWith('now-')
 const EMPTY_LIVE = Object.freeze({ context: null, rateLimits: [], unreviewed: [], risky: {} })
 
 let excludes = []
+// Rule settings and the pane's language; ctx is rebuilt when the language is known.
+let ruleCfg = ruleConfig()
+let risky = riskyCommands(ruleCfg)
+let ctx = makeCtx('en', ruleCfg)
+let claudeSettings = {}
+let retentionDays = 0
 let digest = null
 let findings = null
 let tab = 'now'
@@ -59,6 +73,10 @@ let live = EMPTY_LIVE
 
 export function register(on, options) {
   settings = normalizeSettings(options || {})
+  ruleCfg = ruleConfig(options || {})
+  risky = riskyCommands(ruleCfg)
+  ctx = makeCtx('en', ruleCfg)
+  retentionDays = Math.max(0, Number(options?.retentionDays) || 0)
   excludes = String(options?.excludeProjects || '').split(/[,:\n]/).map((s) => s.trim()).filter(Boolean)
 
   on('session.start', async ($, e, next) => {
@@ -73,7 +91,7 @@ export function register(on, options) {
   })
 
   // /config (or this pane's model picker) changed one of our fields: use it from the next call.
-  on('config.set', async ($, e, next) => onConfigSet($, e, await next(e)))
+  on('config.set', async ($, e, next) => onConfigSet($, e, await next(e))).catch(passThrough)
 
   on('command.run', { command: 'chronicle' }, async ($, e) => runCommand($, String(e.args || '').trim()))
 
@@ -86,16 +104,16 @@ export function register(on, options) {
   on('tool.call', async ($, e, next) => {
     onToolCall($, e)
     return next(e)
-  })
+  }).catch(passThrough)
 
   on('agent.spawn', async ($, e, next) => {
-    if (isReviewer(e.subagentType) && live.unreviewed.length) {
+    if (isReviewer(e.subagentType, ruleCfg.reviewers) && live.unreviewed.length) {
       live = { ...live, unreviewed: [] }
       $.ui.invalidate('ui.render')
       persistView($)
     }
     return next(e)
-  })
+  }).catch(passThrough)
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
@@ -104,9 +122,15 @@ export function register(on, options) {
   })
 }
 
+// These hooks only observe: if one fails, the call it watched goes ahead untouched. In a catch
+// handler next is replay-safe (an earlier call is not run again), so next(e) is always right.
+function passThrough($, e, next) {
+  return next(e)
+}
+
 function onToolCall($, e) {
   const before = live
-  live = trackToolCall(live, e)
+  live = trackToolCall(live, e, risky)
   if (live === before) return
   $.ui.invalidate('ui.render')
   persistView($)
@@ -116,6 +140,7 @@ function onConfigSet($, e, result) {
   const field = settingsField(e.key, $.plugin.name)
   if (field && !result?.deny) {
     settings = mergeSetting(settings, field, result.value)
+    if (field === 'language') applyLanguage()
     $.ui.invalidate('ui.render')
   }
   return result
@@ -134,16 +159,50 @@ async function resetSession($) {
 }
 
 async function startSession($) {
+  claudeSettings = await readClaudeSettings($)
+  applyLanguage()
   dismissed = await loadDismissed($)
+  await checkVersion($)
   const isReload = await restoreView($)
   // After a reload (e.g. a model change) the startup toast would only repeat itself.
   $.clock.after(STARTUP_DELAY_MS, () => refresh($, !isReload))
   await $.command.register({
     name: 'chronicle',
-    description: 'Open the usage-analysis sidebar (now | cost | tips | standup | improve | refresh)',
-    argumentHint: '[tab|refresh]',
+    description: 'Open the usage-analysis sidebar (now | cost | tips | standup | improve | refresh | purge)',
+    argumentHint: '[tab|refresh|purge]',
     immediate: true,
   })
+}
+
+async function readClaudeSettings($) {
+  try {
+    const s = await $.settings.read()
+    return s && typeof s === 'object' ? s : {}
+  } catch {
+    return {}
+  }
+}
+
+// The pane follows the `language` option, or Claude Code's own `language` setting on auto.
+function applyLanguage() {
+  ctx = makeCtx(resolveLang(settings.language, claudeSettings.language), ruleCfg)
+  findings = null
+}
+
+const versionParts = (v) => String(v).split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0)
+const isOlder = (a, b) => {
+  const [x, y] = [versionParts(a), versionParts(b)]
+  const i = x.findIndex((n, k) => n !== y[k])
+  return i >= 0 && x[i] < y[i]
+}
+
+async function checkVersion($) {
+  try {
+    const { version } = await $.session.version()
+    if (isOlder(version, MIN_VERSION)) status = { ...status, error: ctx.t('oldVersion', { v: version, min: MIN_VERSION }) }
+  } catch {
+    // Unknown version: carry on; a missing API would have failed to load the mod anyway.
+  }
 }
 
 async function restoreView($) {
@@ -165,7 +224,7 @@ function restoreDetail(id) {
     pendingDetailId = id
     return
   }
-  const current = buildNow(live).find((f) => f.id === id)
+  const current = buildNow(live, ctx).find((f) => f.id === id)
   detailId = current ? id : null
   lastDetail = current || null
 }
@@ -194,6 +253,7 @@ async function writeView($) {
 }
 
 async function runCommand($, arg) {
+  if (arg === 'purge') return { text: await purgeAll($) }
   // Indexing can take minutes; never hold the command hook on it.
   if (arg === 'refresh') refresh($, false)
   else if (TAB_IDS.has(arg)) {
@@ -205,30 +265,46 @@ async function runCommand($, arg) {
   await $.ui.open({ id: PANE, title: 'Chronicle', focus: true, closeOnEscape: true })
   $.ui.invalidate('ui.render')
   const unknown = arg && arg !== 'refresh' && !TAB_IDS.has(arg)
-  return unknown ? { text: `不明なタブ "${arg}"。now | cost | tips | standup | improve | refresh` } : {}
+  if (unknown) return { text: ctx.t('unknownTab', { arg }) }
+  return (await drawsPane($)) ? {} : { text: textSummary() }
+}
+
+// The pane shows in the terminal and the desktop app only (not VS Code, mobile or -p).
+async function drawsPane($) {
+  try {
+    return (await $.session.surfaces()).some((s) => s === 'terminal' || s === 'desktop')
+  } catch {
+    return true
+  }
+}
+
+function textSummary() {
+  const lists = { now: buildNow(live, ctx), ...digestFindings() }
+  const top = rankFindings(Object.values(lists).flat(), [...dismissed, ...sessionDismissed]).slice(0, 5)
+  return ctx.t('noPane', { lines: top.map((f) => `- ${f.title} (${f.evidence})`).join('\n') || '- ' + ctx.t('emptyList') })
 }
 
 // Digest-derived findings change only when the digest does, so compute them once.
 function digestFindings() {
   if (!digest) return { cost: [], tips: [], improve: [] }
-  if (!findings) findings = { cost: buildCost(digest), tips: buildTips(digest), improve: buildImprove(digest) }
+  if (!findings) findings = { cost: buildCost(digest, ctx), tips: buildTips(digest, ctx), improve: buildImprove(digest, ctx) }
   return findings
 }
 
 // nowMs comes from $.clock.now() so the standup window follows the engine's (and tests') clock.
 function viewModel(nowMs) {
-  const lists = { now: buildNow(live), ...digestFindings() }
+  const lists = { now: buildNow(live, ctx), ...digestFindings() }
   const hidden = [...dismissed, ...sessionDismissed]
   const ranked = Object.fromEntries(Object.entries(lists).map(([k, v]) => [k, rankFindings(v, hidden)]))
   const detail = resolveDetail(lists)
-  return { tab, days, status, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs) : [] }
+  return { t: ctx.t, tab, days, status, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
 }
 
 function resolveDetail(lists) {
   if (!detailId) return null
   const current = Object.values(lists).flat().find((f) => f.id === detailId)
   if (current) lastDetail = current
-  return lastDetail && { ...lastDetail, isResolved: !current, copyText: copyText(lastDetail) }
+  return lastDetail && { ...lastDetail, isResolved: !current, copyText: copyText(lastDetail, ctx.t) }
 }
 
 function closeDetail(dropExplanations) {
@@ -280,30 +356,92 @@ async function refresh($, isStartup) {
   status = { ...status, indexing: true, error: null }
   $.ui.invalidate('ui.render')
   try {
-    const home = await $.env.get('HOME')
-    if (!home) throw new Error('HOME が未設定のため集計先を決められません')
-    const out = home + '/.claude/chronicle'
-    const argv = ['python3', $.plugin.root + '/indexer/chronicle_index.py', '--out-dir', out, ...excludes.map((x) => '--exclude=' + x)]
-    const run = await $.process.run(argv, { timeoutMs: INDEX_TIMEOUT_MS })
+    const paths = await indexPaths($)
+    const run = await runIndexer($, indexerArgs(paths))
     // The last lines of a traceback name the actual exception.
     if (run.exitCode !== 0) throw new Error((run.stdout + run.stderr).trim().slice(-ERROR_CHARS) || 'exit ' + run.exitCode)
-    const raw = await $.fs.read(out + '/digest.json')
-    digest = JSON.parse(raw)
-    findings = null
-    ai = {}
-    explain = Object.fromEntries(Object.entries(explain).filter(([id]) => isSessionOnly(id)))
-    digestEpoch += 1
-    status = { indexing: false, generatedAt: digest.generatedAt, sessions: digest.sessions.length, error: new TextEncoder().encode(raw).length > MAX_DIGEST_BYTES ? 'digest.json が 3.5MiB を超えました（上限 4MiB）' : null }
-    if (tab === 'standup') loadGitLogs($)
-    adoptPendingDetail($)
-    // An open detail view now shows re-indexed numbers; explain them afresh.
-    const open = resolveDetail({ now: buildNow(live), ...digestFindings() })
-    if (open && !open.isResolved) explainFinding($, open, { force: false, allowCall: autoCallAllowed() })
+    const raw = await $.fs.read(paths.outDir + '/digest.json')
+    adoptDigest($, raw)
     if (isStartup) await announce($)
   } catch (err) {
     status = { ...status, indexing: false, error: String(err?.message || err).slice(-ERROR_CHARS) }
   }
   $.ui.invalidate('ui.render')
+}
+
+function adoptDigest($, raw) {
+  digest = JSON.parse(raw)
+  findings = null
+  ai = {}
+  explain = Object.fromEntries(Object.entries(explain).filter(([id]) => isSessionOnly(id)))
+  digestEpoch += 1
+  const isBig = new TextEncoder().encode(raw).length > MAX_DIGEST_BYTES
+  status = { indexing: false, generatedAt: digest.generatedAt, sessions: digest.sessions.length, error: isBig ? ctx.t('digestBig') : null }
+  if (tab === 'standup') loadGitLogs($)
+  adoptPendingDetail($)
+  // An open detail view now shows re-indexed numbers; explain them afresh.
+  const open = resolveDetail({ now: buildNow(live, ctx), ...digestFindings() })
+  if (open && !open.isResolved) explainFinding($, open, { force: false, allowCall: autoCallAllowed() })
+}
+
+// Where Claude Code keeps its files: CLAUDE_CONFIG_DIR when set, else ~/.claude.
+async function indexPaths($) {
+  const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+  if (!configDir && !home) throw new Error(ctx.t('noHome'))
+  const claudeDir = configDir || home + '/.claude'
+  return { claudeDir, outDir: claudeDir + '/chronicle' }
+}
+
+// Summaries are kept as long as Claude Code keeps transcripts, unless retentionDays says otherwise.
+function retention() {
+  if (retentionDays > 0) return retentionDays
+  const days = Number(claudeSettings.cleanupPeriodDays)
+  return Number.isFinite(days) && days > 0 ? days : DEFAULT_CLEANUP_DAYS
+}
+
+// One argv element per value, so a value starting with '-' can never become an option.
+function indexerArgs({ claudeDir, outDir }) {
+  return [
+    '--claude-dir=' + claudeDir,
+    '--out-dir=' + outDir,
+    '--retention-days=' + retention(),
+    ...excludes.map((x) => '--exclude=' + x),
+    ...ruleCfg.extraRisky.map((x) => '--risky=' + x),
+    ...ruleCfg.memoryCues.map((x) => '--memory-cue=' + x),
+  ]
+}
+
+async function runIndexer($, args) {
+  const script = $.plugin.root + '/indexer/chronicle_index.py'
+  let lastError = null
+  for (const python of PYTHONS) {
+    try {
+      const run = await $.process.run([python, script, ...args], { timeoutMs: INDEX_TIMEOUT_MS })
+      if (run.exitCode !== WINDOWS_COMMAND_NOT_FOUND) return run
+    } catch (err) {
+      lastError = err
+    }
+  }
+  throw lastError || new Error('python3 / python not found')
+}
+
+// /chronicle purge: delete the index, the explanation cache and the saved view.
+async function purgeAll($) {
+  try {
+    const { outDir } = await indexPaths($)
+    const run = await runIndexer($, ['--purge', '--out-dir=' + outDir])
+    if (run.exitCode !== 0) throw new Error((run.stdout + run.stderr).trim().slice(-ERROR_CHARS))
+    await $.store.delete('explainCache')
+    digest = null
+    findings = null
+    status = { indexing: false, generatedAt: null, sessions: 0, error: null }
+    await resetSession($)
+    $.ui.invalidate('ui.render')
+    return ctx.t('purged')
+  } catch (err) {
+    return ctx.t('purgeFailed', { error: String(err?.message || err).slice(-ERROR_CHARS) })
+  }
 }
 
 function adoptPendingDetail($) {
@@ -320,7 +458,7 @@ function adoptPendingDetail($) {
 async function announce($) {
   const model = viewModel(await $.clock.now())
   const high = ['cost', 'improve'].reduce((n, k) => n + model.lists[k].filter((f) => f.severity === 'high').length, 0)
-  if (high) $.ui.toast(`重要な提案 ${high} 件 — /chronicle で確認`)
+  if (high) $.ui.toast(ctx.t('highFindings', { n: high }))
 }
 
 async function loadDismissed($) {
@@ -347,7 +485,7 @@ async function loadGitLogs($) {
   if (!digest) return
   const mine = ++gitSeq
   const d = days
-  const rows = buildStandup(digest, d, await $.clock.now()).slice(0, MAX_GIT_PROJECTS).filter((r) => r.project.startsWith('/'))
+  const rows = buildStandup(digest, d, await $.clock.now(), {}, ctx).slice(0, MAX_GIT_PROJECTS).filter((r) => ABSOLUTE_PATH.test(r.project))
   const results = await Promise.all(rows.map((row) => gitLog($, row.project, d)))
   if (mine !== gitSeq) return
   gitLogs = Object.fromEntries(rows.map((row, i) => [row.project, results[i]]).filter(([, lines]) => lines.length))
@@ -365,7 +503,7 @@ async function gitLog($, project, d) {
   }
 }
 
-// 詳しく: show the finding in the pane itself; nothing is sent to the main conversation.
+// Details: show the finding in the pane itself; nothing is sent to the main conversation.
 function openDetail($, f) {
   detailId = f.id
   lastDetail = f
@@ -400,8 +538,8 @@ async function explainFinding($, f, { force, allowCall }) {
 
 async function explainOnce($, f, key, force, allowCall) {
   const used = settings
-  const payload = shareableFinding(f)
-  const storeKey = isSessionOnly(key) || !used.cacheExplanations ? null : explainCacheKey(payload, used, excludes)
+  const payload = shareableFinding(f, ctx.t)
+  const storeKey = isSessionOnly(key) || !used.cacheExplanations ? null : explainCacheKey(payload, used, excludes, ctx.lang)
   const stored = storeKey && !force ? (await loadExplainCache($))[storeKey] : null
   if (stored) {
     explain = { ...explain, [key]: { text: stripLinks(stored.text), model: stored.model, isCached: true } }
@@ -412,7 +550,7 @@ async function explainOnce($, f, key, force, allowCall) {
   const epochs = [digestEpoch, sessionEpoch]
   explain = { ...explain, [key]: { loading: true, model: used.model } }
   $.ui.invalidate('ui.render')
-  const result = await askModel($, used, EXPLAIN_SYSTEM, { instruction: 'data の指摘を解説する', data: payload }, maxTokensFor(used))
+  const result = await askModel($, used, systemPrompt('explain', ctx.t), { instruction: ctx.t('explainInstruction'), data: payload }, maxTokensFor(used))
   if (epochs[1] !== sessionEpoch) return false
   // The answer matches the content it was asked about, so it is cached even if a re-index won.
   if (storeKey && result.text) await saveExplain($, storeKey, { text: result.text, model: used.model, at: await $.clock.now() })
@@ -470,21 +608,21 @@ async function setSetting($, field, value) {
     const row = rows.find((r) => settingsField(r.key, $.plugin.name) === field)
     const r = await $.config.set({ key: row ? row.key : $.plugin.name + '.' + field, value })
     if (r?.deny) {
-      $.ui.toast('設定を変更できませんでした: ' + r.deny)
+      $.ui.toast(ctx.t('settingFailed', { reason: r.deny }))
       return
     }
   } catch (err) {
-    $.ui.toast('設定を変更できませんでした: ' + String(err?.message || err).slice(-ERROR_CHARS))
+    $.ui.toast(ctx.t('settingFailed', { reason: String(err?.message || err).slice(-ERROR_CHARS) }))
     return
   }
   settings = mergeSetting(settings, field, value)
-  if (field === 'aiModel' && CREDIT_MODELS.has(value)) $.ui.toast(`${value} は usage credits を消費します。解説は g を押したときだけ生成します`)
+  if (field === 'aiModel' && CREDIT_MODELS.has(value)) $.ui.toast(ctx.t('creditWarn', { model: value }))
   $.ui.invalidate('ui.render')
 }
 
 async function copyPrompt($, text, press) {
   const r = await $.ui.copy(press?.surface ? { text, surface: press.surface } : { text })
-  $.ui.toast(r.isCopied ? 'プロンプトをコピーしました' : 'コピーできませんでした: ' + (r.reason || '不明'))
+  $.ui.toast(r.isCopied ? ctx.t('copied') : ctx.t('copyFailed', { reason: r.reason || '?' }))
 }
 
 async function applyViaClaude($, f) {
@@ -499,7 +637,7 @@ async function summarize($, id) {
   ai = { ...ai, [id]: { loading: true } }
   $.ui.invalidate('ui.render')
   const data = aiPayload(id, await $.clock.now())
-  ai = { ...ai, [id]: await askModel($, settings, SUMMARY_SYSTEM, { instruction: 'data を分析して提案を返す', data }, maxTokensFor(settings)) }
+  ai = { ...ai, [id]: await askModel($, settings, systemPrompt('summary', ctx.t), { instruction: ctx.t('summaryInstruction'), data }, maxTokensFor(settings)) }
   $.ui.invalidate('ui.render')
   await persistView($)
 }
@@ -511,12 +649,12 @@ function aiPayload(id, nowMs) {
     return {
       tab: id, days,
       projects: model.standup.map((r) => ({
-        project: r.project.split('/').pop(),
+        project: String(r.project).split(/[\\/]/).filter(Boolean).pop(),
         titles: r.sessions.filter((s) => !s.fromPrompt).map((s) => s.title).slice(-6),
         recap: r.sessions.map((s) => s.away).filter(Boolean).slice(-2),
         commits: r.commits.slice(0, 10),
       })),
     }
   }
-  return { tab: id, findings: model.lists[id].map(shareableFinding) }
+  return { tab: id, findings: model.lists[id].map((f) => shareableFinding(f, ctx.t)) }
 }

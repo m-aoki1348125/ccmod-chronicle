@@ -1,16 +1,33 @@
 {
   "name": "session-chronicle",
-  "version": "0.2.0",
-  "description": "Sidebar that analyzes your Claude Code usage: now, cost, tips, standup, improve",
+  "displayName": "Session Chronicle",
+  "version": "0.3.0",
+  "description": "Sidebar that analyzes how you use Claude Code: live warnings, cost, tips, standup and CLAUDE.md improvements. English and Japanese.",
   "author": {
-    "name": "m-aoki"
+    "name": "m-aoki",
+    "url": "https://github.com/m-aoki1348125"
   },
+  "homepage": "https://github.com/m-aoki1348125/session-chronicle#readme",
+  "repository": "https://github.com/m-aoki1348125/session-chronicle",
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "usage",
+    "analytics",
+    "cost",
+    "sidebar"
+  ],
   "userConfig": {
-    "excludeProjects": {
+    "language": {
       "type": "string",
-      "title": "Excluded projects",
-      "description": "Comma-separated project path prefixes to leave out of the analysis (e.g. customer work)",
-      "default": ""
+      "title": "Language",
+      "description": "Pane language. auto follows Claude Code's language setting.",
+      "options": [
+        "auto",
+        "en",
+        "ja"
+      ],
+      "default": "auto"
     },
     "aiModel": {
       "type": "string",
@@ -46,6 +63,44 @@
       "title": "Cache explanations",
       "description": "Keep explanations of Cost/Tips/Improve findings in the plugin store (plain JSON, 40 entries, 14 days) so reopening costs no tokens.",
       "default": true
+    },
+    "reviewerAgents": {
+      "type": "string",
+      "title": "Review agents",
+      "description": "Comma-separated subagent names that count as code review (e.g. code-reviewer,security-reviewer). Empty turns the review checks off.",
+      "default": "code-reviewer,security-reviewer"
+    },
+    "memoryTools": {
+      "type": "string",
+      "title": "Note-search tools",
+      "description": "Comma-separated MCP tool name prefixes or CLI names you use to search your notes (e.g. mcp__notes__,notes). Empty turns the recall check off.",
+      "default": ""
+    },
+    "memoryCueWords": {
+      "type": "string",
+      "title": "Earlier-context words",
+      "description": "Comma-separated words that mean a prompt needs earlier context. Empty uses built-in English and Japanese words.",
+      "default": ""
+    },
+    "extraRiskyCommands": {
+      "type": "string",
+      "title": "Extra risky commands",
+      "description": "Comma-separated command substrings to flag besides rm -r, force push, reset --hard, ssh/scp/rsync and sudo (e.g. terraform apply).",
+      "default": ""
+    },
+    "retentionDays": {
+      "type": "number",
+      "title": "Keep summaries (days)",
+      "description": "How long session summaries are kept. 0 follows Claude Code's cleanupPeriodDays (30 by default).",
+      "default": 0,
+      "min": 0,
+      "max": 3650
+    },
+    "excludeProjects": {
+      "type": "string",
+      "title": "Excluded projects",
+      "description": "Comma-separated project path prefixes to leave out of the analysis (e.g. customer work)",
+      "default": ""
     }
   },
   "types": "./types/index.d.ts"

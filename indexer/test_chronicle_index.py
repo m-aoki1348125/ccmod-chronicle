@@ -47,7 +47,7 @@ class IndexerTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_summarizes_session_counts(self):
-        digest = ci.build(self.claude, self.out, ["/secret"])
+        digest = ci.build(self.claude, self.out, ci.make_options(excludes=["/secret"], risky=["terraform apply"]))
         [s] = digest["sessions"]
         self.assertEqual(s["title"], "Settings tab")
         self.assertEqual(s["firstPrompt"], "add a settings tab please")
@@ -176,7 +176,7 @@ class RobustnessTest(unittest.TestCase):
         ])
         [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
         self.assertEqual((s["denials"], s["toolErrors"]), (1, 2))
-        self.assertEqual(s["tools"].get("bash:notes"), 1)
+        self.assertEqual(s["bashHeads"].get("notes"), 1)
         self.assertEqual(s["risky"], {})
 
     def test_exclude_change_keeps_deleted_history_and_negative_cache_skips_rereads(self):
@@ -215,6 +215,55 @@ class RobustnessTest(unittest.TestCase):
         (out / "cache.json").write_text(json.dumps({"schema": 0, "excludes": [], "sessions": {"x": 5, "y": {"data": {"project": "/w"}, "cwds": [1, None]}}}), encoding="utf-8")
         digest = ci.build(self.claude, out, ["/w/secret"])
         self.assertEqual([s["project"] for s in digest["sessions"]], [])
+
+
+class OptionsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.claude = self.root / ".claude"
+        self.proj = self.claude / "projects" / "-w"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def history(self, *displays):
+        write_jsonl(self.claude / "history.jsonl", [{"display": d, "project": "/w", "timestamp": 1759276800000} for d in displays])
+
+    def test_paths_are_not_counted_as_slash_commands(self):
+        self.history("/home/me/notes.md please read", "/Users/me/x", "/model", "/plugin:cmd arg", "/tmp/file")
+        h = ci.build(self.claude, self.root / "out", [])["history"]
+        self.assertEqual(h["slash"], {"/model": 1, "/plugin:cmd": 1})
+
+    def test_english_resume_and_correction_prompts_count(self):
+        self.history("keep going", "Continue.", "that's wrong, try again", "it still doesn't work", "please add tests")
+        h = ci.build(self.claude, self.root / "out", [])["history"]
+        self.assertEqual((h["resumePrompts"], h["correctionPrompts"]), (2, 2))
+
+    def test_memory_cues_follow_the_option(self):
+        self.history("as we did last time", "check the Team Wiki")
+        default = ci.build(self.claude, self.root / "a", [])["history"]["memoryCuePrompts"]
+        custom = ci.build(self.claude, self.root / "b", ci.make_options(memory_cues=["Team Wiki"]))["history"]["memoryCuePrompts"]
+        self.assertEqual((default, custom), (1, 1))
+
+    def test_retention_applies_only_once_the_transcript_is_gone(self):
+        old = [{"type": "user", "cwd": "/w", "timestamp": "2020-01-01T00:00:00Z", "message": {"content": "a"}}]
+        write_jsonl(self.proj / "old.jsonl", old)
+        write_jsonl(self.proj / "new.jsonl", [{"type": "user", "cwd": "/w", "timestamp": "2099-01-01T00:00:00Z", "message": {"content": "b"}}])
+        opts = ci.make_options(retention_days=30)
+        out = self.root / "out"
+        # Claude Code still keeps the old transcript, so its summary stays and is not re-read.
+        self.assertEqual([s["id"] for s in ci.build(self.claude, out, opts)["sessions"]], ["old", "new"])
+        self.assertEqual(ci.build(self.claude, out, opts)["stats"]["scanned"], 0)
+        # Once the transcript is deleted, the old summary falls outside the window and goes.
+        (self.proj / "old.jsonl").unlink()
+        self.assertEqual([s["id"] for s in ci.build(self.claude, out, opts)["sessions"]], ["new"])
+
+    def test_purge_removes_what_the_indexer_wrote(self):
+        out = self.root / "out"
+        ci.build(self.claude, out, [])
+        self.assertEqual(sorted(ci.purge(out)), ["cache.json", "digest.json"])
+        self.assertFalse(out.exists())
 
 
 if __name__ == "__main__":

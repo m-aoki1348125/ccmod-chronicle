@@ -12,12 +12,17 @@ const PANE = {
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
-function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any } = {}) {
+function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[] } = {}) {
   const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[], modelCalls: [] as any[], configSets: [] as any[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
   mock.env(on, { HOME: '/home/u' })
   on('session.start', () => ({ cwd: '/work' }))
+  // Claude Code's own settings: Japanese unless a test asks otherwise, so `language: auto` picks ja.
+  on('settings.read', () => ({ value: { language: opts.claudeLanguage ?? 'Japanese', cleanupPeriodDays: 30 } }))
+  on('session.version', () => ({ value: { version: '2.1.288' } }))
+  on('session.surfaces', () => ({ value: opts.surfaces ?? ['terminal'] }))
+  on('store.delete', ($: any, e: any) => { rec.saved.delete(e.key); return { value: undefined } })
   on('command.register', () => ({ value: undefined }))
   on('store.get', ($: any, e: any) => ({ value: rec.saved.get(e.key) }))
   on('store.set', ($: any, e: any) => { rec.saved.set(e.key, e.value); return { value: undefined } })
@@ -55,7 +60,7 @@ test('startup runs the indexer, loads the digest and toasts high findings', asyn
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   const indexer = rec.argv.find((a) => a[0] === 'python3')
-  expect(indexer?.join(' ')).toMatch(/indexer\/chronicle_index\.py --out-dir \/home\/u\/\.claude\/chronicle$/)
+  expect(indexer?.slice(1, 5)).toEqual([expect.stringMatching(/indexer\/chronicle_index\.py$/), '--claude-dir=/home/u/.claude', '--out-dir=/home/u/.claude/chronicle', '--retention-days=30'])
   expect(rec.toasts.length).toBe(1)
   expect(rec.toasts[0]).toMatch(/重要な提案 \d+ 件/)
 })
@@ -106,7 +111,7 @@ test('apply asks Claude through a prompt instead of writing files', async ($, on
   await $.command.run({ command: 'chronicle', args: 'improve' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'apply-improve-review-gate' })
-  expect(rec.submitted.at(-1)).toMatch(/差分を見せてから適用/)
+  expect(rec.submitted.at(-1)).toMatch(/差分を見せてから/)
   await ui.unmount()
 })
 
@@ -294,7 +299,7 @@ test('適用を依頼 leaves the detail view so the next /chronicle opens the li
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'ask-improve-review-gate' })
   await ui.press({ key: 'apply-improve-review-gate' })
-  expect(rec.submitted.at(-1)).toMatch(/差分を見せてから適用/)
+  expect(rec.submitted.at(-1)).toMatch(/差分を見せてから/)
   await $.command.run({ command: 'chronicle', args: '' })
   expect(await ui.find({ key: 'back' })).toBeUndefined()
   await ui.unmount()
@@ -487,5 +492,54 @@ test('moving on before the re-index cancels a detail waiting to be restored', as
   await clock.settle()
   expect(await ui.find({ key: 'back' })).toBeUndefined()
   expect(await ui.find({ key: 'tab-now' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an English Claude Code gets an English pane, prompts and docs', async ($, on) => {
+  const { rec, clock } = stubEngine(on, { claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /compactions happened above/ })).toBeDefined()
+  await ui.press({ key: 'ask-cost-heavy-sessions' })
+  expect(await ui.find({ type: 'Text', text: 'Breakdown' })).toBeDefined()
+  expect(rec.modelPrompts.at(-1)).toMatch(/Explain the finding in data/)
+  expect(rec.modelPrompts.at(-1)).toMatch(/untrusted/)
+  await ui.unmount()
+})
+
+test('the language option overrides Claude Code\'s setting', { options: { language: 'en' } }, async ($, on) => {
+  const { clock } = stubEngine(on)
+  await start($, clock)
+  const bad = await $.command.run({ command: 'chronicle', args: 'nope' })
+  expect(bad.text).toMatch(/Unknown tab "nope"/)
+})
+
+test('/chronicle purge deletes the index and the explanation cache', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  rec.saved.set('explainCache', { k: { text: 'x', model: 'haiku', at: 1 } })
+  const answer = await $.command.run({ command: 'chronicle', args: 'purge' })
+  expect(answer.text).toMatch(/削除しました/)
+  expect(rec.argv.at(-1)).toContain('--purge')
+  expect(rec.saved.has('explainCache')).toBe(false)
+})
+
+test('where the pane cannot show (VS Code), /chronicle answers in text', async ($, on) => {
+  const { clock } = stubEngine(on, { surfaces: ['vscode'] })
+  await start($, clock)
+  const answer = await $.command.run({ command: 'chronicle', args: '' })
+  expect(answer.text).toMatch(/サイドバー/)
+  expect(answer.text).toMatch(/compaction/)
+})
+
+test('extra risky commands from the settings are flagged live and passed to the indexer', { options: { extraRiskyCommands: 'terraform apply' } }, async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.tool.call({ tool: 'Bash', command: 'terraform apply -auto-approve' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /terraform apply × 1/ })).toBeDefined()
+  expect(rec.argv.find((a) => a[0] === 'python3')).toContain('--risky=terraform apply')
   await ui.unmount()
 })

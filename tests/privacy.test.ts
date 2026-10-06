@@ -8,14 +8,14 @@ const base = { id: 'x', severity: 'mid', title: 't', evidence: 'e', action: 'a',
 
 test('lines with paths or control characters are withheld', async () => {
   const out = shareableFinding({ ...base, evidence: '/Users/me/secret', details: ['ok 3 回', 'C:\\case\\x', 'a\u202eb', 'x'.repeat(200), '~/work/a', 'src/a/b.ts', '/loop 0 回', 'src/app.py', '/secret.txt', 'https://a/b', 'acme\uff0fpolice', 'sonnet/haiku は 7%'] })
-  expect(out.evidence).toBe('（非送信）')
+  expect(out.evidence).toBe('(withheld)')
   expect(out.details).toEqual(['ok 3 回', '/loop 0 回', 'sonnet/haiku は 7%'])
   expect(out.topic).toBe('costs')
 })
 
 test('local-only findings send a count instead of names', async () => {
   const out = shareableFinding({ ...base, evidence: 'alpha.ts, beta.ts', details: ['alpha.ts', 'beta.ts'], localDetails: true })
-  expect(out.evidence).toBe('対象 2 件（名前は非送信）')
+  expect(out.evidence).toBe('2 item(s) (names withheld)')
   expect(out.details).toEqual([])
 })
 
@@ -28,12 +28,12 @@ test('stripLinks removes inline, reference, autolink and non-http schemes', asyn
 
 test('every finding has a copyable prompt', async () => {
   expect(copyText({ ...base, prompt: 'P' })).toBe('P')
-  expect(copyText(base)).toMatch(/「t」/)
+  expect(copyText(base)).toMatch(/"t"/)
 })
 
 test('fixed wording with single slashes is still sent', async () => {
   const all = [...buildCost(DIGEST), ...buildImprove(DIGEST), ...buildTips(DIGEST)]
-  const withheld = all.map(shareableFinding).filter((f) => f.title === '（非送信）' || f.evidence === '（非送信）')
+  const withheld = all.map((f) => shareableFinding(f)).filter((f) => f.title === '(withheld)' || f.evidence === '(withheld)')
   expect(withheld).toEqual([])
 })
 
@@ -42,7 +42,7 @@ test('review-gate details name only reviewer agents', async () => {
   const gate = buildImprove(d).find((f) => f.id === 'improve-review-gate')
   expect(gate?.details.join('\n')).not.toMatch(/acme/)
   // Two fixture sessions x 4 calls each.
-  expect(gate?.details).toContain('その他のエージェント: 8 回')
+  expect(gate?.details).toContain('other agents: 8')
 })
 
 test('unknown compaction triggers are not echoed', async () => {
