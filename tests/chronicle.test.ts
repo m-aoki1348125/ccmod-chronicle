@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { DIGEST, NOW_ISO } from './fixture.ts'
 import { SETTING_KEYS } from '../hooks/settings-spec.js'
+import { SETTING_GROUPS } from '../hooks/view.js'
 
 const PANE = {
   plugin: 'ccmod-chronicle',
@@ -692,7 +693,8 @@ test('the rich Now tab shows the context meter with its status word', { options:
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^85% high$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^40% ok$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /AI use this session/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /AI calls/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^5-hour limit$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -712,12 +714,16 @@ test('a narrow rich pane keeps every chart within its columns', { options: { pan
   await $.command.run({ command: 'chronicle', args: 'cost' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 24 } })
   const mix = await ui.find({ key: 'mix' })
-  expect(mix?.props.columns).toBeLessThanOrEqual(24)
+  // Charts sit 2 columns in under their header, so they get the pane width minus 2.
+  expect(mix?.props.columns).toBeLessThanOrEqual(22)
   const bar = await ui.find({ key: 'heavy-0' })
-  expect(bar?.props.columns).toBeLessThanOrEqual(24 - 8 - 8 - 2)
+  expect(bar?.props.columns).toBeLessThanOrEqual(22 - 7 - 8 - 2)
   await ui.press({ key: 'tab-standup' })
-  expect((await ui.find({ key: 'per-day' }))?.props.columns).toBe(24)
+  expect((await ui.find({ key: 'per-day' }))?.props.columns).toBe(22)
   await ui.unmount()
+  const wide = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await wide.find({ key: 'per-day' }))?.props.columns).toBe(60)
+  await wide.unmount()
 })
 
 test('VS Code, which has no Raster, gets the SVG charts', { options: { paneStyle: 'rich' } }, async ($, on) => {
@@ -730,3 +736,61 @@ test('VS Code, which has no Raster, gets the SVG charts', { options: { paneStyle
   expect(await ui.find({ key: 'card-cost-late-compact' })).toBeDefined()
   await ui.unmount()
 })
+
+test('the Settings groups hold every option exactly once', async () => {
+  const keys = SETTING_GROUPS.flatMap((g) => g.keys)
+  expect([...keys].sort()).toEqual([...SETTING_KEYS].sort())
+  expect(new Set(keys).size).toBe(keys.length)
+})
+
+test('the rich Cost tab shows stat tiles and severity chips', { options: { paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Output tokens/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ HIGH $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Findings$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the simple style keeps icons but draws no frames or tiles', async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^🔴$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ HIGH $/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Output tokens/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('rich tiles count Standup work and warn on unreviewed edits', { ...WITH_REVIEWERS, options: { ...WITH_REVIEWERS.options, paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  for (const f of ['/w/a.ts', '/w/b.ts', '/w/c.ts']) await $.tool.call({ tool: 'Edit', file_path: f, old_string: 'a', new_string: 'b' })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Unreviewed edits/ })).toBeDefined()
+  // find() matches by type and text only; the color is checked on the node's props.
+  expect((await ui.find({ type: 'Text', text: /^3$/ }))?.props.color).toBe('warning')
+  await ui.press({ key: 'tab-standup' })
+  await ui.press({ key: 'days-7' })
+  expect(await ui.find({ type: 'Text', text: /^1$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+for (const style of ['simple', 'rich'] as const) {
+  test(`the ${style} detail view ${style === 'rich' ? 'frames the finding with a chip' : 'keeps it unframed'}`, { options: { paneStyle: style } }, async ($, on) => {
+    const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+    await start($, clock)
+    await $.command.run({ command: 'chronicle', args: 'cost' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'ask-cost-late-compact' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    const chip = await ui.find({ type: 'Text', text: /^ HIGH $/ })
+    if (style === 'rich') expect(chip).toBeDefined()
+    else expect(chip).toBeUndefined()
+    await ui.unmount()
+  })
+}

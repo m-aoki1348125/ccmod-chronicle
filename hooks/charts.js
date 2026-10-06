@@ -63,7 +63,15 @@ export function digestCharts(digest, nowMs) {
   const heavy = (digest?.sessions || []).map((s) => ({ label: sessionLabel(s), value: sessionCacheRead(s) })).filter((r) => r.value > 0)
   heavy.sort((a, b) => b.value - a.value)
   const compactions = tot.compactions.filter((c) => c.preTokens).slice(-COMPACT_ROWS)
+  const usage = Object.values(tot.usage)
+  const summary = {
+    sessions: tot.sessions,
+    out: usage.reduce((n, u) => n + u.out, 0),
+    cacheRead: usage.reduce((n, u) => n + u.cacheRead, 0),
+    compactions: tot.compactions.length,
+  }
   return Object.freeze({
+    summary,
     modelMix: modelMix(tot),
     heavy: heavy.slice(0, TOP_ROWS),
     compactions: compactions.map((c) => ({ label: `${String(c.at || '').slice(5, 10)} ${TRIGGERS.has(c.trigger) ? c.trigger : '?'}`, value: c.preTokens })),
@@ -75,7 +83,7 @@ export function digestCharts(digest, nowMs) {
 export function liveCharts(live) {
   const context = finitePct(live?.context?.percent)
   const rates = (live?.rateLimits || []).map((r) => ({ kind: String(r.kind ?? ''), pct: finitePct(r.percentUsed) })).filter((r) => r.pct !== null)
-  return Object.freeze({ context: context === null ? null : { pct: context }, rates })
+  return Object.freeze({ context: context === null ? null : { pct: context }, rates, unreviewed: (live?.unreviewed || []).length })
 }
 
 export const chartData = (digest, live, nowMs) => Object.freeze({ ...digestCharts(digest, nowMs), ...liveCharts(live) })

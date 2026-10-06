@@ -54,6 +54,11 @@ session and tokens at compaction on Cost; prompts per day on Standup) and draws 
 bordered card. Charts are cell graphics in the terminal and SVG with hover values in the desktop
 app; other surfaces keep the simple view's text. Every chart has its numbers written beside it.
 
+Both views mark severity with 🔴 / 🔶 / 🔷 (shape and color) and a colored title, the evidence with 📊 and the next step
+with 👉. The rich view adds a colored HIGH / MID / LOW chip, frames colored by severity, stat tiles
+(Now, Cost, Standup) and a Findings header. Colors are Claude Code theme colors, so they follow your
+light or dark theme, and none carries meaning without an icon or a word beside it.
+
 ## Settings
 
 Change these in the **Settings** tab (`6` or `/chronicle settings`), in `/config`, or in `/plugin` → Installed → ccmod-chronicle → Configure. With `--plugin-dir`,

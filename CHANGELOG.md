@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Easier to read at a glance: tab icons, 🔴 / 🔶 / 🔷 severity with colored titles, 📊 evidence and
+  👉 action lines with a hanging indent, status icons. The rich view adds severity chips, frames
+  colored by severity, stat tiles on Now, Cost and Standup, a Findings header and plan-limit names
+  (5-hour, 7-day). The Settings tab is grouped into Display, AI, Rules and Data.
+
 ## 0.5.0
 
 - Rich view (`paneStyle: rich`, or `v` in the pane): charts above the findings and bordered
