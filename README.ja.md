@@ -1,4 +1,4 @@
-# Session Chronicle
+# ccmod-chronicle
 
 [English](README.md)
 
@@ -28,14 +28,14 @@ GitHub Copilot CLI の `/chronicle` のように、Claude Code の使い方を�
 ## インストール
 
 ```bash
-claude plugin marketplace add m-aoki1348125/session-chronicle
-claude plugin install session-chronicle@session-chronicle
+claude plugin marketplace add m-aoki1348125/ccmod-chronicle
+claude plugin install ccmod-chronicle@ccmod-chronicle
 ```
 
-1 セッションだけ試す場合は、クローンして `claude --plugin-dir ./session-chronicle`。
+1 セッションだけ試す場合は、クローンして `claude --plugin-dir ./ccmod-chronicle`。
 
 インストールの前に、実行せずに mod が何をするかを一覧できます：
-`claude plugin validate ./session-chronicle`（[SECURITY.md](SECURITY.md) 参照）。
+`claude plugin validate ./ccmod-chronicle`（[SECURITY.md](SECURITY.md) 参照）。
 
 ## 使い方
 
@@ -48,8 +48,8 @@ claude plugin install session-chronicle@session-chronicle
 
 ## 設定
 
-`/config`、または `/plugin` → Installed → session-chronicle → Configure で変更します。`--plugin-dir` で
-読み込んだ場合は `~/.claude/settings.json` の `pluginConfigs["session-chronicle@inline"]` に保存されます。
+`/config`、または `/plugin` → Installed → ccmod-chronicle → Configure で変更します。`--plugin-dir` で
+読み込んだ場合は `~/.claude/settings.json` の `pluginConfigs["ccmod-chronicle@inline"]` に保存されます。
 変更すると mod が再読み込みされ、ペインは元の画面に戻ります。
 
 | 設定 | 既定値 | 内容 |

@@ -2,7 +2,7 @@
 // reloads the plugin). The mod rewrites them to defaults itself on /clear, /resume and /branch.
 declare module 'claude-code' {
   interface PluginState {
-    'session-chronicle': {
+    'ccmod-chronicle': {
       view: {
         tab: string
         detailId: string | null

@@ -1,4 +1,4 @@
-# Session Chronicle
+# ccmod-chronicle
 
 [日本語](README.ja.md)
 
@@ -29,14 +29,14 @@ you press **Ask Claude to apply**.
 ## Install
 
 ```bash
-claude plugin marketplace add m-aoki1348125/session-chronicle
-claude plugin install session-chronicle@session-chronicle
+claude plugin marketplace add m-aoki1348125/ccmod-chronicle
+claude plugin install ccmod-chronicle@ccmod-chronicle
 ```
 
-Or try it for one session from a clone: `claude --plugin-dir ./session-chronicle`.
+Or try it for one session from a clone: `claude --plugin-dir ./ccmod-chronicle`.
 
 Before installing any mod, you can list what it does without running it:
-`claude plugin validate ./session-chronicle` (see [SECURITY.md](SECURITY.md)).
+`claude plugin validate ./ccmod-chronicle` (see [SECURITY.md](SECURITY.md)).
 
 ## Use
 
@@ -49,8 +49,8 @@ Keys: `1`–`5` tabs, `r` re-index, `a` AI summary, Esc closes. In a detail view
 
 ## Settings
 
-Set these in `/config` or `/plugin` → Installed → session-chronicle → Configure. With `--plugin-dir`,
-they live under `pluginConfigs["session-chronicle@inline"]` in `~/.claude/settings.json`.
+Set these in `/config` or `/plugin` → Installed → ccmod-chronicle → Configure. With `--plugin-dir`,
+they live under `pluginConfigs["ccmod-chronicle@inline"]` in `~/.claude/settings.json`.
 Changing one reloads the mod; the pane comes back where it was.
 
 | Option | Default | What it does |

@@ -2,12 +2,12 @@
 
 A mod runs inside Claude Code with your user's permissions and is not sandboxed
 ([mods overview](https://code.claude.com/docs/en/plugins/mods/overview#decide-whether-to-trust-a-mod)).
-This page explains every capability Session Chronicle uses, so you can check it before installing.
+This page explains every capability ccmod-chronicle uses, so you can check it before installing.
 
 ## Check it yourself
 
 ```bash
-claude plugin validate ./session-chronicle
+claude plugin validate ./ccmod-chronicle
 ```
 
 The `hooks:` and `calls:` lines list the events the mod handles and every mods API method it calls.
@@ -50,5 +50,5 @@ from model output.
 
 ## Reporting a vulnerability
 
-Please open a [GitHub security advisory](https://github.com/m-aoki1348125/session-chronicle/security/advisories/new)
+Please open a [GitHub security advisory](https://github.com/m-aoki1348125/ccmod-chronicle/security/advisories/new)
 rather than a public issue.

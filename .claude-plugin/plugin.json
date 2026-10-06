@@ -1,14 +1,14 @@
 {
-  "name": "session-chronicle",
-  "displayName": "Session Chronicle",
+  "name": "ccmod-chronicle",
+  "displayName": "ccmod-chronicle",
   "version": "0.3.0",
   "description": "Sidebar that analyzes how you use Claude Code: live warnings, cost, tips, standup and CLAUDE.md improvements. English and Japanese.",
   "author": {
     "name": "m-aoki",
     "url": "https://github.com/m-aoki1348125"
   },
-  "homepage": "https://github.com/m-aoki1348125/session-chronicle#readme",
-  "repository": "https://github.com/m-aoki1348125/session-chronicle",
+  "homepage": "https://github.com/m-aoki1348125/ccmod-chronicle#readme",
+  "repository": "https://github.com/m-aoki1348125/ccmod-chronicle",
   "license": "MIT",
   "keywords": [
     "mod",

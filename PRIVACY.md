@@ -1,6 +1,6 @@
 # Privacy
 
-Session Chronicle reads your Claude Code history on your machine. This page lists what it reads,
+ccmod-chronicle reads your Claude Code history on your machine. This page lists what it reads,
 what it stores, what can leave the machine, and how to delete it. (日本語の要約は末尾にあります。)
 
 ## What it reads

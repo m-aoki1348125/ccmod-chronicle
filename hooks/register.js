@@ -1,4 +1,4 @@
-// session-chronicle: a sidebar that analyzes how you use Claude Code.
+// ccmod-chronicle: a sidebar that analyzes how you use Claude Code.
 // Heavy lifting (reading ~800MB of transcripts) runs in indexer/chronicle_index.py
 // via $.process.run; this module renders the digest plus live session signals.
 
@@ -10,7 +10,7 @@ import { copyText, isShareableLine, shareableFinding, stripLinks } from './priva
 import { atom, read, update } from 'claude-code'
 import { addUsage, CREDIT_MODELS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
-const PANE = 'session-chronicle'
+const PANE = 'ccmod-chronicle'
 const INDEX_TIMEOUT_MS = 10 * 60 * 1000
 const GIT_TIMEOUT_MS = 5000
 const MAX_GIT_PROJECTS = 8
@@ -65,7 +65,7 @@ let aiUsage = { calls: 0, in: 0, out: 0 }
 let inflight = new Set()
 let saveChain = Promise.resolve()
 // Survives the reload an options change triggers (see types/index.d.ts); reset by /clear.
-const VIEW = atom({ plugin: 'session-chronicle', key: 'view' }, { tab: 'now', detailId: null, days: 1, aiUsage: { calls: 0, in: 0, out: 0 }, nowExplain: {}, live: { unreviewed: [], risky: {} }, sessionDismissed: [] })
+const VIEW = atom({ plugin: 'ccmod-chronicle', key: 'view' }, { tab: 'now', detailId: null, days: 1, aiUsage: { calls: 0, in: 0, out: 0 }, nowExplain: {}, live: { unreviewed: [], risky: {} }, sessionDismissed: [] })
 // A restored digest-finding detail waits for the re-index before it is reopened (or dropped).
 let pendingDetailId = null
 let persistChain = Promise.resolve()

@@ -8,11 +8,11 @@ test('unknown option values fall back to the defaults', async () => {
 })
 
 test('settingsField accepts <name>. and <name>@x. keys for our fields only', async () => {
-  expect(settingsField('session-chronicle.aiModel', 'session-chronicle')).toBe('aiModel')
-  expect(settingsField('session-chronicle@inline.aiEffort', 'session-chronicle')).toBe('aiEffort')
-  expect(settingsField('session-chronicle-evil.aiModel', 'session-chronicle')).toBe(null)
-  expect(settingsField('other.aiModel', 'session-chronicle')).toBe(null)
-  expect(settingsField('session-chronicle.theme', 'session-chronicle')).toBe(null)
+  expect(settingsField('ccmod-chronicle.aiModel', 'ccmod-chronicle')).toBe('aiModel')
+  expect(settingsField('ccmod-chronicle@inline.aiEffort', 'ccmod-chronicle')).toBe('aiEffort')
+  expect(settingsField('ccmod-chronicle-evil.aiModel', 'ccmod-chronicle')).toBe(null)
+  expect(settingsField('other.aiModel', 'ccmod-chronicle')).toBe(null)
+  expect(settingsField('ccmod-chronicle.theme', 'ccmod-chronicle')).toBe(null)
 })
 
 test('the cache key changes with model, effort, exclusions and content', async () => {

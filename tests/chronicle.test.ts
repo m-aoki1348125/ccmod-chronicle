@@ -2,9 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 import { DIGEST, NOW_ISO } from './fixture.ts'
 
 const PANE = {
-  plugin: 'session-chronicle',
+  plugin: 'ccmod-chronicle',
   component: 'Pane',
-  requestId: 'session-chronicle',
+  requestId: 'ccmod-chronicle',
   viewport: { columns: 200, rows: 50 },
   props: { title: 'Chronicle', isFocused: true, bodyColumns: 70, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
@@ -50,7 +50,7 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
   on('tool.call', () => ({ result: 'ok' }))
   on('config.set', ($: any, e: any) => { rec.configSets.push([e.key, e.value]); return { value: e.value } })
   // A --plugin-dir load may key our /config rows as `<name>@inline.<field>`.
-  on('config.list', () => ({ value: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'excludeProjects'].map((f) => ({ key: 'session-chronicle@inline.' + f, label: f, kind: 'text', value: '', provider: { plugin: 'session-chronicle', tier: 'user' }, isLocked: false })) }))
+  on('config.list', () => ({ value: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'excludeProjects'].map((f) => ({ key: 'ccmod-chronicle@inline.' + f, label: f, kind: 'text', value: '', provider: { plugin: 'ccmod-chronicle', tier: 'user' }, isLocked: false })) }))
   return { rec, clock }
 }
 
@@ -388,9 +388,9 @@ test('the pane picker and /config both change the model for the next call', asyn
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'ask-cost-heavy-sessions' })
   await ui.select({ key: 'ai-model', value: 'sonnet' })
-  expect(rec.configSets.at(-1)).toEqual(['session-chronicle@inline.aiModel', 'sonnet'])
+  expect(rec.configSets.at(-1)).toEqual(['ccmod-chronicle@inline.aiModel', 'sonnet'])
   await ui.press({ key: 'explain-again' })
-  await $.config.set({ key: 'session-chronicle@inline.aiModel', value: 'opus' })
+  await $.config.set({ key: 'ccmod-chronicle@inline.aiModel', value: 'opus' })
   await ui.press({ key: 'explain-again' })
   expect(explainCalls(rec).map((c: any) => c.model)).toEqual(['haiku', 'sonnet', 'opus'])
   await ui.unmount()

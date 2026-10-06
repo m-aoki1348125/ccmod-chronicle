@@ -1,13 +1,13 @@
 {
-  "name": "session-chronicle",
-  "description": "Session Chronicle: a Claude Code mod that analyzes how you use Claude Code",
+  "name": "ccmod-chronicle",
+  "description": "ccmod-chronicle: a Claude Code mod that analyzes how you use Claude Code",
   "owner": {
     "name": "m-aoki",
     "url": "https://github.com/m-aoki1348125"
   },
   "plugins": [
     {
-      "name": "session-chronicle",
+      "name": "ccmod-chronicle",
       "source": "./",
       "description": "Sidebar with live warnings, cost, tips, standup and CLAUDE.md improvements (English / Japanese)"
     }

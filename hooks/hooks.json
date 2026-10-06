@@ -1,4 +1,4 @@
 {
-  "description": "session-chronicle hooks module",
+  "description": "ccmod-chronicle hooks module",
   "modules": ["./register.js"]
 }
