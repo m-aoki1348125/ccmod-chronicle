@@ -519,10 +519,12 @@ test('/chronicle purge deletes the index and the explanation cache', async ($, o
   const { rec, clock } = stubEngine(on)
   await start($, clock)
   rec.saved.set('explainCache', { k: { text: 'x', model: 'haiku', at: 1 } })
+  rec.saved.set('dismissed', ['cost-credits'])
   const answer = await $.command.run({ command: 'chronicle', args: 'purge' })
   expect(answer.text).toMatch(/削除しました/)
   expect(rec.argv.at(-1)).toContain('--purge')
   expect(rec.saved.has('explainCache')).toBe(false)
+  expect(rec.saved.has('dismissed')).toBe(false)
 })
 
 test('where the pane cannot show (VS Code), /chronicle answers in text', async ($, on) => {

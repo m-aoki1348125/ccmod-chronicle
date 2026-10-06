@@ -53,7 +53,7 @@ export const JA = {
   unknownTab: (p) => `不明なタブ "${p.arg}"。now | cost | tips | standup | improve | refresh | purge`,
   noHome: 'ホームディレクトリ（HOME / USERPROFILE）が見つからないため集計先を決められません',
   digestBig: 'digest.json が 3.5MiB を超えました（上限 4MiB）。retentionDays を下げてください',
-  purged: '集計結果・解説のキャッシュ・このセッションの保存状態を削除しました',
+  purged: '集計結果・解説のキャッシュ・無視した指摘・このセッションの保存状態を削除しました',
   purgeFailed: (p) => '一部を削除できませんでした: ' + p.error,
   oldVersion: (p) => `Claude Code ${p.v} は ${p.min} より古いため、mod が動かない可能性があります`,
   noPane: (p) => `session-chronicle はサイドバーを描画しますが、このアプリでは表示されません。主な提案:\n${p.lines}`,

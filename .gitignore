@@ -2,3 +2,4 @@
 .claude-plugin/types/
 __pycache__/
 *.pyc
+.ruff_cache/

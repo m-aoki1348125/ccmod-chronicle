@@ -1,79 +1,98 @@
-# session-chronicle
+# Session Chronicle
 
-A Claude Code mod that opens a sidebar analyzing how you use Claude Code, in the
-spirit of GitHub Copilot CLI's `/chronicle`. Tested with Claude Code 2.1.288.
+[日本語](README.ja.md)
+
+A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that opens a sidebar
+analyzing how you use Claude Code, in the spirit of GitHub Copilot CLI's `/chronicle`.
 
 | Tab | What it shows |
 |---|---|
-| Now | Live warnings for this session: context fill, plan-limit windows, unreviewed code edits, risky commands |
+| Now | Live warnings for this session: context fill, plan-limit windows, code changed without review, commands with outside effects |
 | Cost | Late compactions, the few sessions that dominate cache reads, model mix, credit errors, very long turns |
 | Tips | Up to 5 Claude Code features you underuse, with the evidence and a docs link |
 | Standup | Work per project over the last 1 / 3 / 7 days: titles, recaps, git commits, files |
-| Improve | Gaps between your CLAUDE.md rules and actual behavior; "適用を依頼" asks Claude to propose a diff |
+| Improve | Gaps between how you work and what helps (review after edits, note searches, repeated corrections, tool errors) |
 
-## How it works
+**Details** opens a finding inside the sidebar: the breakdown behind it, the recommended action, a
+prompt you can copy, and an optional AI explanation. Nothing is posted to your conversation unless
+you press **Ask Claude to apply**.
 
-- `indexer/chronicle_index.py` (Python stdlib only) incrementally summarizes
-  `~/.claude/projects/**/*.jsonl` and `~/.claude/history.jsonl` into
-  `~/.claude/chronicle/digest.json` (0600). Summaries survive transcript cleanup; usage is
-  de-duplicated by message id. Excluded projects are matched after resolving symlinks,
-  `..` and case, and sessions with an unknown directory are skipped when any exclude is set.
-- The mod runs the indexer at session start and on **再集計 (r)**, then renders rule-based
-  findings (`hooks/rules.js`, `hooks/catalog.js`). Live signals come from
-  `session.measure`, `tool.call` and `agent.spawn`.
-- **AIで要約** (button only) sends findings and counts to `sonnet` via `$.model.complete`.
-  Raw prompt text and full project paths are never sent.
-- **詳しく** opens the finding inside the sidebar: the rule's breakdown (dates, counts,
-  per-model/per-session rows), the recommended action, a copyable prompt (`c`), and a
-  sonnet explanation generated on that press and cached until the next re-index (`g`
-  regenerates, `b` goes back). Nothing is sent to the main conversation.
-- The mod never writes your files. "適用を依頼" is the one button that submits a prompt
-  to the conversation, so Claude proposes a diff through the normal permission flow.
+## Requirements
+
+- Claude Code **2.1.287 or later** (mods). Tested with 2.1.288. The pane shows in the terminal and the
+  desktop app's Code tab; elsewhere (VS Code extension, mobile, `claude -p`) `/chronicle` answers in text.
+- **Python 3.9+** on `PATH` as `python3` or `python` (standard library only; nothing is installed).
+- Organizations can block user-installed mods (`allowManagedModsOnly` and related managed settings).
+  If `/chronicle` does not exist after installing, ask your administrator.
+- Tested on macOS. Linux should work; Windows is untested.
+
+## Install
+
+```bash
+claude plugin marketplace add m-aoki1348125/session-chronicle
+claude plugin install session-chronicle@session-chronicle
+```
+
+Or try it for one session from a clone: `claude --plugin-dir ./session-chronicle`.
+
+Before installing any mod, you can list what it does without running it:
+`claude plugin validate ./session-chronicle` (see [SECURITY.md](SECURITY.md)).
 
 ## Use
 
-```bash
-claude --plugin-dir ~/work/session-chronicle   # one session
-# every session: add the absolute path to env.CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json
-```
+`/chronicle [now|cost|tips|standup|improve|refresh|purge]`
 
-Then `/chronicle [now|cost|tips|standup|improve|refresh]`. Keys: `1`–`5` tabs, `r` re-index,
-`a` AI summary, Esc closes; in a detail view `b` back, `c` copy prompt, `g` regenerate.
+Keys: `1`–`5` tabs, `r` re-index, `a` AI summary, Esc closes. In a detail view: `b` back,
+`c` copy prompt, `g` generate / regenerate the explanation.
+
+`/chronicle purge` deletes everything this mod stored (see [PRIVACY.md](PRIVACY.md)).
 
 ## Settings
 
-Set these in `/config` (or `/plugin configure`). With `--plugin-dir`, they live under
-`pluginConfigs["session-chronicle@inline"]` in `~/.claude/settings.json`.
+Set these in `/config` or `/plugin` → Installed → session-chronicle → Configure. With `--plugin-dir`,
+they live under `pluginConfigs["session-chronicle@inline"]` in `~/.claude/settings.json`.
+Changing one reloads the mod; the pane comes back where it was.
 
 | Option | Default | What it does |
 |---|---|---|
-| `aiModel` | `haiku` | Model for 詳しく explanations and AI summaries: `haiku`, `sonnet`, `opus`, `fable`. fable consumes usage credits and only runs when you press `g`. Also switchable from the picker in a detail view, which saves to this setting |
-| `aiEffort` | `low` | Effort for those calls: `low`, `medium`, `high` |
-| `autoExplain` | `true` | Generate the explanation as soon as 詳しく opens. Off: press `g` |
-| `cacheExplanations` | `true` | Keep Cost / Tips / Improve explanations in the plugin store so reopening costs nothing. The store is plain JSON on this machine |
-| `excludeProjects` | empty | Comma-separated project path prefixes to leave out of the analysis (e.g. customer work) |
-
-Changing an option reloads the mod (Claude Code re-runs it with the new options). The open tab,
-detail view, Standup range, Now warnings and explanations, and this session's token total are
-kept in `$.state` and restored. Cost / Tips / Improve refill when the automatic re-index finishes
-a moment later; a restored detail reopens only if its finding still exists and you have not moved
-on. AI summaries follow the re-index and are not restored (press `a` again).
+| `language` | `auto` | `en`, `ja`, or `auto` (follows Claude Code's `language` setting) |
+| `aiModel` | `haiku` | Model for explanations and AI summaries: `haiku`, `sonnet`, `opus`, `fable`. `fable` uses usage credits and only runs when you press `g`. Also switchable from the detail view |
+| `aiEffort` | `low` | `low`, `medium`, `high`. The reply cap grows with it (700 / 1200 / 2000 tokens) |
+| `autoExplain` | `true` | Generate the explanation as soon as Details opens. Off: press `g` |
+| `cacheExplanations` | `true` | Reuse explanations of Cost / Tips / Improve findings until their numbers change |
+| `reviewerAgents` | `code-reviewer,security-reviewer` | Subagent names that count as review. Empty turns the review checks off |
+| `memoryTools` | empty | MCP tool prefixes or CLI names you search notes with (e.g. `mcp__notes__,notes`). Empty turns the recall check off |
+| `memoryCueWords` | empty | Words meaning "this needs earlier context". Empty uses built-in English and Japanese words |
+| `extraRiskyCommands` | empty | Extra command substrings to flag (e.g. `terraform apply`) |
+| `retentionDays` | `0` | How long a session summary outlives its transcript. `0` follows Claude Code's `cleanupPeriodDays` |
+| `excludeProjects` | empty | Comma-separated project path prefixes to leave out entirely (e.g. client work) |
 
 ## Token use
 
-The mod makes no model calls except the two AI buttons. To keep those small:
+The mod calls a model only when you press **AI summary** or open **Details** (with `autoExplain`).
+Calls use your plan or API key. Defaults keep them small: `haiku`, low effort, a short reply, and a
+cache of explanations (40 entries, 14 days, keyed by content, model, effort, language and
+exclusions). Each answer shows its tokens; the detail view shows this session's total.
 
-- Replies are capped by effort (low 700, medium 1200, high 2000 tokens, leaving room for
-  thinking) and the prompts ask for 400–500 characters.
-- Explanations of Cost / Tips / Improve findings are cached in the plugin store by finding
-  content, model, effort and `excludeProjects` (40 entries, 14 days), so reopening one costs nothing until the
-  numbers change. Live Now explanations are cached for the session.
-- Each answer shows its input/output tokens; the detail view shows this session's total.
+## How it works
+
+- `indexer/chronicle_index.py` (stdlib Python) incrementally summarizes the transcripts Claude Code
+  keeps under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`) into `~/.claude/chronicle/digest.json`.
+  The transcript format is not a public interface; if a Claude Code release changes it, findings may
+  go quiet until the indexer is updated.
+- The mod (`hooks/register.js`) runs the indexer at session start and on `r`, turns the digest into
+  findings with fixed rules (`hooks/rules.js`, `hooks/catalog.js`) and watches the live session
+  through mod events.
+- Strings live in `hooks/strings-en.js` and `hooks/strings-ja.js`.
 
 ## Develop
 
 ```bash
-claude plugin validate .
+claude plugin validate --strict .
 claude plugin test
 python3 -m unittest discover -s indexer
 ```
+
+## License
+
+[MIT](LICENSE)

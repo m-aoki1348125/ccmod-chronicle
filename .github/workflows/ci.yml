@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  indexer:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests (stdlib only)
+        run: python -m unittest discover -s indexer -v
+      - name: Lint
+        if: matrix.python == '3.12'
+        run: pipx run ruff check indexer
+
+  mod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `claude plugin validate` and `claude plugin test` need no sign-in or network beyond the install.
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Validate manifest, marketplace and hooks module
+        run: claude plugin validate --strict .
+      - name: Mod tests
+        run: claude plugin test

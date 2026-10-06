@@ -426,13 +426,15 @@ async function runIndexer($, args) {
   throw lastError || new Error('python3 / python not found')
 }
 
-// /chronicle purge: delete the index, the explanation cache and the saved view.
+// /chronicle purge: delete the index, the explanation cache, dismissals and the saved view.
 async function purgeAll($) {
   try {
     const { outDir } = await indexPaths($)
     const run = await runIndexer($, ['--purge', '--out-dir=' + outDir])
     if (run.exitCode !== 0) throw new Error((run.stdout + run.stderr).trim().slice(-ERROR_CHARS))
     await $.store.delete('explainCache')
+    await $.store.delete('dismissed')
+    dismissed = []
     digest = null
     findings = null
     status = { indexing: false, generatedAt: null, sessions: 0, error: null }
