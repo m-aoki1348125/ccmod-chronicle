@@ -39,7 +39,7 @@ test('fixed wording with single slashes is still sent', async () => {
 })
 
 test('review-gate details name only reviewer agents', async () => {
-  const d = { ...DIGEST, sessions: DIGEST.sessions.map((s) => ({ ...s, agents: { 'code-reviewer': 1, 'acme-police-case-analyzer': 4 } })) }
+  const d = { ...DIGEST, sessions: DIGEST.sessions.map((s) => ({ ...s, agents: { 'code-reviewer': 1, 'acme-client-analyzer': 4 } })) }
   const gate = buildImprove(d, makeCtx('en', ruleConfig({ reviewerAgents: 'code-reviewer' }))).find((f) => f.id === 'improve-review-gate')
   expect(gate?.details.join('\n')).not.toMatch(/acme/)
   // Two fixture sessions x 4 calls each.

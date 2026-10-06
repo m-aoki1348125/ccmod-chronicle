@@ -11,7 +11,8 @@ export const LANGUAGE_OPTIONS = ['auto', 'en', 'ja']
 export function resolveLang(option, settingsLanguage) {
   if (option === 'en' || option === 'ja') return option
   const s = String(settingsLanguage || '').toLowerCase()
-  return s.startsWith('ja') || s.includes('japan') || s.includes('日本') ? 'ja' : 'en'
+  // "ja", "ja-JP", "Japanese", "日本語" (but not "Javanese").
+  return /^ja([-_]|$)/.test(s) || s.includes('japan') || s.includes('日本') ? 'ja' : 'en'
 }
 
 export function makeT(lang) {

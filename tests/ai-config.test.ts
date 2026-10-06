@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { resolveLang } from '../hooks/i18n.js'
 import { addUsage, explainCacheKey, isCacheEntry, mergeSetting, normalizeSettings, pruneCache, settingsField, tokensOf } from '../hooks/ai-config.js'
 
 test('unknown option values fall back to the defaults', async () => {
@@ -44,4 +45,9 @@ test('per-answer and session token figures use one definition', async () => {
   const u = { input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 5, output_tokens: 7 }
   expect(tokensOf(u)).toEqual({ in: 115, out: 7 })
   expect(addUsage({ calls: 0, in: 0, out: 0 }, u)).toEqual({ calls: 1, in: 115, out: 7 })
+})
+
+test('auto language detects Japanese but not Javanese', async () => {
+  expect(['Japanese', '日本語', 'ja', 'ja-JP', 'Javanese', 'English', ''].map((l) => resolveLang('auto', l))).toEqual(['ja', 'ja', 'ja', 'ja', 'en', 'en', 'en'])
+  expect(resolveLang('en', 'Japanese')).toBe('en')
 })

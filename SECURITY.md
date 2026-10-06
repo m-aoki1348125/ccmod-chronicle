@@ -20,7 +20,7 @@ The `hooks:` and `calls:` lines list the events the mod handles and every mods A
 | `command.run` (`/chronicle` only) | Open the pane | Answers its own command |
 | `tool.call`, `agent.spawn` | Notice code edits, risky Bash commands and review agents | No: observes and passes the call on, also when the hook fails (`.catch`) |
 | `session.measure` | Context and plan-limit usage for the Now tab | No; passes it on, also on failure (`.catch`) |
-| `config.set` | Apply a changed option without waiting for the reload | No |
+| `config.set` | Apply a changed option without waiting for the reload | No; passes the result on, also on failure (`.catch`) |
 | `ui.render` (its own pane) | Draw the sidebar | Draws only its pane |
 
 It never approves or denies tool calls and does not rewrite prompts.

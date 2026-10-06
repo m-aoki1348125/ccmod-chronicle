@@ -65,8 +65,9 @@ function statusLine(el, model, h) {
     columnGap: 2,
     children: [
       Text({ dimColor: true, wrap: 'truncate-end', children: [clean(text)] }),
+      model.versionWarning ? Text({ color: 'warning', wrap: 'truncate-end', children: [t('oldVersion', model.versionWarning)] }) : null,
       Button({ key: 'refresh', label: t('refresh'), hotkey: 'r', plain: true, onPress: () => h.onRefresh() }),
-    ],
+    ].filter(Boolean),
   })
 }
 

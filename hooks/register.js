@@ -6,7 +6,7 @@ import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, isReview
 import { makeCtx, resolveLang, ruleConfig } from './i18n.js'
 import { buildTips } from './catalog.js'
 import { renderPane, TABS } from './view.js'
-import { copyText, shareableFinding, stripLinks } from './privacy.js'
+import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
 import { addUsage, CREDIT_MODELS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
@@ -70,6 +70,8 @@ const VIEW = atom({ plugin: 'session-chronicle', key: 'view' }, { tab: 'now', de
 let pendingDetailId = null
 let persistChain = Promise.resolve()
 let status = { indexing: false, generatedAt: null, sessions: 0, error: null }
+// Kept apart from status.error, which every index run resets.
+let versionWarning = null
 let live = EMPTY_LIVE
 
 export function register(on, options) {
@@ -201,7 +203,7 @@ const isOlder = (a, b) => {
 async function checkVersion($) {
   try {
     const { version } = await $.session.version()
-    if (isOlder(version, MIN_VERSION)) status = { ...status, error: ctx.t('oldVersion', { v: version, min: MIN_VERSION }) }
+    versionWarning = isOlder(version, MIN_VERSION) ? { v: version, min: MIN_VERSION } : null
   } catch {
     // Unknown version: carry on; a missing API would have failed to load the mod anyway.
   }
@@ -299,7 +301,7 @@ function viewModel(nowMs) {
   const hidden = [...dismissed, ...sessionDismissed]
   const ranked = Object.fromEntries(Object.entries(lists).map(([k, v]) => [k, rankFindings(v, hidden)]))
   const detail = resolveDetail(lists)
-  return { t: ctx.t, tab, days, status, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
+  return { t: ctx.t, tab, days, status, versionWarning, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [] }
 }
 
 function resolveDetail(lists) {
@@ -661,9 +663,10 @@ function aiPayload(id, nowMs) {
       tab: id, days,
       projects: model.standup.map((r) => ({
         project: String(r.project).split(/[\\/]/).filter(Boolean).pop(),
-        titles: r.sessions.filter((s) => !s.fromPrompt).map((s) => s.title).slice(-6),
-        recap: r.sessions.map((s) => s.away).filter(Boolean).slice(-2),
-        commits: r.commits.slice(0, 10),
+        // Free text from transcripts and git: lines that look like paths or URLs stay here.
+        titles: r.sessions.filter((s) => !s.fromPrompt).map((s) => s.title).filter(isShareableLine).slice(-6),
+        recap: r.sessions.map((s) => s.away).filter(isShareableLine).slice(-2),
+        commits: r.commits.filter(isShareableLine).slice(0, 10),
       })),
     }
   }

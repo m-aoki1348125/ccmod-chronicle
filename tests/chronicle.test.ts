@@ -15,7 +15,7 @@ const WITH_REVIEWERS = { options: { reviewerAgents: 'code-reviewer,security-revi
 const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // Shared stubs: indexer, digest file, git, store, UI calls. Returns recorders.
-function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[] } = {}) {
+function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; slowIndexerMs?: number; model?: (e: any) => any; claudeLanguage?: string; surfaces?: string[]; version?: string } = {}) {
   const rec = { argv: [] as string[][], toasts: [] as string[], saved: new Map<string, unknown>(), submitted: [] as string[], modelPrompts: [] as string[], copied: [] as string[], modelCalls: [] as any[], configSets: [] as any[] }
   // Pin the clock to the fixture's 'now' so day windows do not depend on the real date.
   const clock = mock.clock(on, { now: Date.parse(NOW_ISO) })
@@ -23,7 +23,7 @@ function stubEngine(on: any, opts: { indexerExit?: number; modelText?: string; s
   on('session.start', () => ({ cwd: '/work' }))
   // Claude Code's own settings: Japanese unless a test asks otherwise, so `language: auto` picks ja.
   on('settings.read', () => ({ value: { language: opts.claudeLanguage ?? 'Japanese', cleanupPeriodDays: 30 } }))
-  on('session.version', () => ({ value: { version: '2.1.288' } }))
+  on('session.version', () => ({ value: { version: opts.version ?? '2.1.288' } }))
   on('session.surfaces', () => ({ value: opts.surfaces ?? ['terminal'] }))
   on('store.delete', ($: any, e: any) => { rec.saved.delete(e.key); return { value: undefined } })
   on('command.register', () => ({ value: undefined }))
@@ -546,5 +546,28 @@ test('extra risky commands from the settings are flagged live and passed to the 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /terraform apply × 1/ })).toBeDefined()
   expect(rec.argv.find((a) => a[0] === 'python3')).toContain('--risky=terraform apply')
+  await ui.unmount()
+})
+
+test('an old Claude Code keeps its warning after the startup index', async ($, on) => {
+  const { clock } = stubEngine(on, { version: '2.1.200', claudeLanguage: 'English' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /2\.1\.200 is older than 2\.1\.287/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Indexed/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Standup AI summary withholds titles, recaps and commits that contain paths', async ($, on) => {
+  const { rec, clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-standup' })
+  await ui.press({ key: 'days-7' })
+  await ui.press({ key: 'ai-standup' })
+  expect(rec.modelPrompts.at(-1)).toMatch(/Ship the settings page/)
+  expect(rec.modelPrompts.at(-1)).not.toMatch(/\/home\/alice/)
   await ui.unmount()
 })

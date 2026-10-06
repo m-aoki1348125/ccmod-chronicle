@@ -16,7 +16,7 @@ what it stores, what can leave the machine, and how to delete it. (日本語の�
 | Where | What | Kept for |
 |---|---|---|
 | `~/.claude/chronicle/digest.json`, `cache.json` (file mode 0600, folder 0700) | Per-session counts (tools, models, tokens, errors); names of the subagents, skills, MCP servers and slash commands you used; the first word of your Bash commands (top 60, e.g. `git`, `pytest`); titles; recap text; the first 80 characters of each session's first prompt; edited file paths; working directories; your `extraRiskyCommands` strings as labels | While the transcript exists; after Claude Code deletes it, until `retentionDays` after the session ended (default: Claude Code's `cleanupPeriodDays`, so usually together with the transcript) |
-| Plugin store (`$.store`, a JSON file Claude Code keeps) | Dismissed findings; cached AI explanations (model output, 40 entries) | Explanations: 14 days. Dismissals: until you clear them or run `/chronicle purge` |
+| Plugin store (`$.store`, a JSON file Claude Code keeps) | Dismissed findings; cached AI explanations (model output, 40 entries) | Explanations: 14 days. Dismissals: until `/chronicle purge` |
 | Session state (`$.state`) | The open tab and detail, Now warnings (full paths of code files you edited and risky-command counts), Now explanations, this session's token total | This session (other installed plugins can read session state) |
 
 Excluded projects are matched after resolving `~`, `..`, symlinks and letter case. A session that
@@ -31,7 +31,8 @@ through Claude Code, using your plan or API key, like any other Claude Code requ
 - Findings and their counts, model names, dates and project folder names. Lines that look like paths,
   URLs or control text are withheld, and Now warnings send a count instead of file names.
 - For the Standup summary only: session titles, recap text and git commit subjects of the selected
-  days. The first-prompt text and full paths are never sent.
+  days, as written, except lines that look like paths or URLs, which are withheld. The first-prompt
+  text and project paths are never sent.
 - Names you configure appear in findings and can be sent with them: your `reviewerAgents` names and
   your `extraRiskyCommands` strings (as typed, unless they look like a path). Other agent, skill and
   command names stay on the machine.
@@ -56,7 +57,7 @@ through Claude Code, using your plan or API key, like any other Claude Code requ
   プロンプトの先頭 80 文字、編集したファイルのパス）。会話ログがある間。会話ログが消えた後は、セッションの終了から `retentionDays` 日まで（既定は Claude Code の `cleanupPeriodDays` なので、通常は会話ログと一緒に消えます）。
   プラグインの保存領域に、無視した指摘と AI 解説のキャッシュ（14 日）。
 - **外に出るもの**：AI のボタンを押したときだけ、指摘と件数・モデル名・日付・フォルダ名をモデルに送ります。
-  Standup の要約ではタイトル・要約・コミット件名も送ります。最初のプロンプトの本文やフルパスは送りません。
+  Standup の要約ではタイトル・要約・コミット件名も送ります（パスや URL に見える行は除きます）。最初のプロンプトの本文やプロジェクトのパスは送りません。
 - **削除**：`/chronicle purge`。インストールしたままだと次の起動で集計し直します（止めるには無効化かアンインストール）。
   アンインストールだけでは `~/.claude/chronicle/` は残ります。
 - **ローカルに保存する名前**：使ったサブエージェント・skill・MCP サーバー・スラッシュコマンドの名前と、Bash コマンドの

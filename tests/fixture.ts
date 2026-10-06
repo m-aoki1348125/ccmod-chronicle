@@ -17,7 +17,7 @@ export const DIGEST = {
   sessions: [
     {
       id: 's1', project: '/work/demo-app', start: '2026-10-03T01:00:00Z', end: '2026-10-03T09:00:00Z',
-      title: 'Ship the settings page', firstPrompt: 'secret first prompt text', away: ['Release candidate tagged'],
+      title: 'Ship the settings page', firstPrompt: 'secret first prompt text', away: ['Edited /home/alice/clients/acme/src/auth.py', 'Release candidate tagged'],
       models: { 'claude-opus-5-5': 10 },
       usageByModel: { 'claude-opus-5-5': { in: 10, out: 1000, cacheRead: 500000, cacheWrite: 10 } },
       tools: { Bash: 40, Edit: 30, Agent: 1, mcp__notes__query: 2 }, risky: { 'terraform apply': 3 },

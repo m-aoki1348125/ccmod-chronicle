@@ -32,7 +32,7 @@
     "aiModel": {
       "type": "string",
       "title": "AI model",
-      "description": "Model for the 詳しく explanation and AI summary. haiku is cheapest; fable consumes usage credits and only runs when you press g.",
+      "description": "Model for the Details explanation and the AI summary. haiku is cheapest; fable consumes usage credits and only runs when you press g.",
       "options": [
         "haiku",
         "sonnet",
@@ -55,7 +55,7 @@
     "autoExplain": {
       "type": "boolean",
       "title": "Explain on open",
-      "description": "Generate the AI explanation as soon as 詳しく opens. Off: press g to generate. Cached answers are always shown.",
+      "description": "Generate the AI explanation as soon as Details opens. Off: press g to generate. Cached answers are always shown.",
       "default": true
     },
     "cacheExplanations": {
@@ -73,7 +73,7 @@
     "memoryTools": {
       "type": "string",
       "title": "Note-search tools",
-      "description": "Comma-separated MCP tool name prefixes or CLI names you use to search your notes (e.g. mcp__notes__,notes). Empty turns the recall check off.",
+      "description": "Comma-separated MCP tool name prefixes or CLI names you use to search your notes (e.g. mcp__notes__,notes-cli). Empty turns the recall check off.",
       "default": ""
     },
     "memoryCueWords": {
@@ -91,7 +91,7 @@
     "retentionDays": {
       "type": "number",
       "title": "Keep summaries (days)",
-      "description": "How long session summaries are kept. 0 follows Claude Code's cleanupPeriodDays (30 by default).",
+      "description": "Once Claude Code deletes a session's transcript, keep its summary until this many days after the session ended. 0 uses Claude Code's cleanupPeriodDays (30 by default).",
       "default": 0,
       "min": 0,
       "max": 3650

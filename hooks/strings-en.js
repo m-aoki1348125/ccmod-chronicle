@@ -56,7 +56,7 @@ export const EN = {
   creditWarn: (p) => `${p.model} uses usage credits. Explanations run only when you press g`,
   unknownTab: (p) => `Unknown tab "${p.arg}". Use now | cost | tips | standup | improve | refresh | purge`,
   noHome: 'No home directory found (HOME / USERPROFILE), so there is nowhere to index to',
-  digestBig: 'digest.json is over 3.5 MiB (limit 4 MiB); lower retentionDays',
+  digestBig: 'digest.json is over 3.5 MiB (limit 4 MiB); exclude projects or lower Claude Code\'s cleanupPeriodDays',
   purged: 'Deleted the index, the explanation cache, dismissed findings and this session\'s saved view',
   purgeBusy: 'Indexing is running; try /chronicle purge again when it finishes',
   purgeFailed: (p) => 'Could not delete everything: ' + p.error,

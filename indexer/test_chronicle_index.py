@@ -165,11 +165,11 @@ class RobustnessTest(unittest.TestCase):
         self.assertEqual(s["usageByModel"]["claude-x"]["cacheRead"], 100)
         self.assertEqual(s["tools"], {"Read": 1, "Grep": 1})
 
-    def test_denials_and_qmd_cli_are_classified(self):
+    def test_denials_and_note_cli_are_classified(self):
         res = lambda text: {"type": "user", "message": {"content": [{"type": "tool_result", "is_error": True, "content": text}]}}
         write_jsonl(self.proj / "s.jsonl", [
             {"type": "user", "cwd": "/w", "message": {"content": "a"}},
-            assistant([("Bash", {"command": "cd vault && notes vsearch 'x'"}), ("Bash", {"command": "git push --force-with-lease"})]),
+            assistant([("Bash", {"command": "cd vault && notes search 'x'"}), ("Bash", {"command": "git push --force-with-lease"})]),
             res("The user doesn't want to proceed with this tool use."),
             res("bash: /etc/x: Permission denied"),
             res("! [rejected] main -> main (non-fast-forward)"),
