@@ -28,7 +28,7 @@ from chronicle_io import (
 )
 from chronicle_text import classify_api_error, first_plain_text, first_text
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 11
 CODE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go", ".swift", ".kt", ".java", ".c", ".cpp", ".cs", ".rb"}
 RISKY_PATTERNS = [
     (re.compile(r"\brm\s+-\w*r"), "rm -r"),
@@ -50,6 +50,13 @@ BUILTIN_RISKY_LABELS = {label for _, label in RISKY_PATTERNS}
 SLASH_RE = re.compile(r"^/[A-Za-z][\w:-]*(?=\s|$)")
 COMMAND_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
 MAX_BASH_HEADS = 60
+MAX_FRICTION = 30
+# CLIs whose first argument names the action (`npm test`, `git push`); the pair is the friction key.
+# (npx / uvx / bunx are left out: their first argument is a package, a path or a URL.)
+SUBCOMMAND_CLIS = {"npm", "pnpm", "yarn", "bun", "uv", "git", "cargo", "go", "make", "docker", "gh", "pip", "poetry", "kubectl", "terraform", "dotnet", "mvn", "gradle"}
+# A subcommand looks like a word (`test`, `run`, `pr`); anything else (a URL, a path, a token) is not kept.
+SUBCOMMAND_RE = re.compile(r"^[a-z][a-z0-9:_-]{0,29}$")
+PROGRAM_RE = re.compile(r"^[\w.+-]{1,40}$")
 DEFAULT_MEMORY_CUES = ("前回", "以前", "覚えて", "last time", "previously", "remember when")
 DENIAL_MARKERS = ("doesn't want to proceed", "user rejected", "rejected by the user", "permission to use", "was denied by the user", "but you haven't granted it yet")
 # Auto mode could not judge a call (its classifier erred, skipped or was unavailable): not the tool's fault.
@@ -116,6 +123,11 @@ class SessionStats:
     classifier_errors: int = 0
     entrypoint: str | None = None
     prompts: int = 0
+    corrections: int = 0
+    transcript_dir: str = ""
+    # tool_use id -> what failed, by tool and command name only (never arguments or output)
+    pending: dict = field(default_factory=dict)
+    friction: Counter = field(default_factory=Counter)
     perm_modes: Counter = field(default_factory=Counter)
     sub_ledger: dict = field(default_factory=dict)
     sub_tools: Counter = field(default_factory=Counter)
@@ -162,6 +174,11 @@ class SessionStats:
             "entrypoint": self.entrypoint,
             "prompts": self.prompts,
             "automated": self.is_automated(),
+            "corrections": self.corrections,
+            # Failed tool calls by tool or command name, so Improve can name what keeps failing.
+            "friction": dict(self.friction.most_common(MAX_FRICTION)),
+            # The transcript's folder under projects/, so a prompt can point Claude at it.
+            "dir": self.transcript_dir,
             "permModes": dict(self.perm_modes),
             "subUsage": sum_ledger(self.sub_ledger),
             "subTools": dict(self.sub_tools),
@@ -206,6 +223,70 @@ def sum_ledger(ledger: dict) -> dict:
     return out
 
 
+# Segments that set up rather than run something, and words that only prefix the program.
+SETUP_COMMANDS = {"cd", "echo", "source", "export", "set", "for", "while", "if", "done", "fi"}
+PREFIX_WORDS = {"then", "do", "else", "time", "sudo", "env", "nohup", "xargs", "exec", "command", "timeout"}
+SHELLS = {"bash", "sh", "zsh"}
+RUNNER_SUBCOMMANDS = {"run", "exec", "x", "dlx"}
+SEQUENCE_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;)\s*")
+
+
+def _words(segment: str) -> list:
+    """Words before any pipe, without VAR=value assignments and subshell parentheses."""
+    words = (w.strip("()") for w in segment.split("|")[0].split() if "=" not in w)
+    return [w for w in words if w]
+
+
+def _drop_prefixes(words: list) -> list:
+    """`sudo -u root x`, `timeout 60 x`, `env -i x`: the prefix and its options are not the program."""
+    while words and words[0] in PREFIX_WORDS:
+        words = words[1:]
+        while words and (words[0].startswith("-") or re.fullmatch(r"\d+[smh]?", words[0])):
+            takes_value = words[0] in ("-u", "-g", "-C", "-n", "-s") and len(words) > 1 and not words[1].startswith("-")
+            words = words[2:] if takes_value else words[1:]
+    return words
+
+
+def _program_key(words: list) -> str:
+    # A quoted program (`"/opt/my tool/x"`) is not read: its words could be anything.
+    head = re.split(r"[\\/]", words[0])[-1]
+    if not PROGRAM_RE.match(head):
+        return "Bash"
+    rest = words[1:]
+    if head in SHELLS and len(rest) >= 2 and rest[0] == "-c":
+        return command_key(" ".join(rest[1:]).strip("\"'"))
+    if head.startswith("python") and len(rest) >= 2 and rest[0] == "-m" and SUBCOMMAND_RE.match(rest[1]):
+        return f"{head} -m {rest[1]}"
+    if head in SUBCOMMAND_CLIS and rest and SUBCOMMAND_RE.match(rest[0]):
+        # `npm run build`, `uv run pytest`: what is run is the part that failed.
+        if rest[0] in RUNNER_SUBCOMMANDS and len(rest) > 1 and SUBCOMMAND_RE.match(rest[1]):
+            return f"{head} {rest[0]} {rest[1]}"
+        return f"{head} {rest[0]}"
+    return head
+
+
+def command_key(cmd: str) -> str:
+    """`cd a && npm run build -- -x | tail` -> `npm run build`: the first real program of the command,
+    before any pipe (`head` or `grep` at the end of a pipe rarely is what failed). Only words that look
+    like names are kept, never a URL, a path or a token."""
+    # Continued lines are one command; past that the first line only (a heredoc's body is not a command).
+    line = re.sub(r"\\\n\s*", " ", cmd.strip()).split("\n")[0]
+    for segment in SEQUENCE_SPLIT_RE.split(line):
+        words = _drop_prefixes(_words(segment))
+        if not words or words[0] in SETUP_COMMANDS or words[0].startswith(("$", "{", "[")):
+            continue
+        return _program_key(words)
+    return "Bash"
+
+
+def friction_key(name: str, inp: dict) -> str | None:
+    """What a failure is counted under: a Bash program, or an MCP tool. Built-in tools fail for
+    generic reasons (a path not there, a page that refused) that no CLAUDE.md line fixes."""
+    if name == "Bash":
+        return command_key(inp.get("command") or "")
+    return name if name.startswith("mcp__") else None
+
+
 def record_tool_use(stats: SessionStats, name: str, inp: dict, opts: IndexOptions) -> None:
     stats.tools[name] += 1
     if name.startswith("mcp__"):
@@ -245,15 +326,21 @@ def record_assistant(stats: SessionStats, d: dict, opts: IndexOptions) -> None:
         add_usage(stats.usage_ledger, model, msg)
     for c in msg.get("content") or []:
         if isinstance(c, dict) and c.get("type") == "tool_use":
-            record_tool_use(stats, c.get("name", "?"), c.get("input") or {}, opts)
+            inp = c.get("input") if isinstance(c.get("input"), dict) else {}
+            record_tool_use(stats, c.get("name", "?"), inp, opts)
+            key = friction_key(c.get("name", "?"), inp)
+            if c.get("id") and key:
+                stats.pending[c["id"]] = key
 
 
 def record_user(stats: SessionStats, d: dict) -> None:
     msg = d.get("message") if isinstance(d.get("message"), dict) else {}
     content = msg.get("content")
-    text = "" if d.get("isMeta") else first_plain_text(content)
+    # A compaction summary repeats earlier prompts; it is not the person typing.
+    text = "" if d.get("isMeta") or d.get("isCompactSummary") else first_plain_text(content)
     if text:
         stats.prompts += 1
+        stats.corrections += bool(CORRECTION_RE.search(text))
         if stats.first_prompt is None:
             stats.first_prompt = " ".join(text.split())[:FIRST_PROMPT_CHARS]
     if not isinstance(content, list):
@@ -267,6 +354,9 @@ def record_user(stats: SessionStats, d: dict) -> None:
                 stats.denials += 1
             else:
                 stats.tool_errors += 1
+                key = stats.pending.get(c.get("tool_use_id"))
+                if key:
+                    stats.friction[key] += 1
 
 
 def record_system(stats: SessionStats, d: dict) -> None:
@@ -283,7 +373,7 @@ def record_system(stats: SessionStats, d: dict) -> None:
 
 
 def summarize_main(path: Path, opts: IndexOptions) -> SessionStats:
-    stats = SessionStats(session_id=path.stem)
+    stats = SessionStats(session_id=path.stem, transcript_dir=path.parent.name)
     for d in iter_records(path):
         ts = d.get("timestamp")
         if isinstance(ts, str):

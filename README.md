@@ -11,7 +11,7 @@ analyzing how you use Claude Code, in the spirit of GitHub Copilot CLI's `/chron
 | Cost | Late compactions, the few sessions that dominate cache reads, model mix, credit errors, very long turns |
 | Tips | Up to 5 Claude Code features you underuse, with the evidence and a docs link |
 | Standup | Work per project over the last 1 / 3 / 7 days: titles, recaps, git commits, files |
-| Improve | Gaps between how you work and what helps (review after edits, note searches, repeated corrections, tool errors) |
+| Improve | Gaps between how you work and what helps (review after edits, note searches, repeated corrections, tool errors). In the open repository, commands that keep failing and corrections that keep coming back, with the transcripts behind them, and a request to Claude to draft CLAUDE.md lines |
 | Settings | Every option below, changed in place (pickers and text fields) |
 
 **Details** opens a finding inside the sidebar: the breakdown behind it, the recommended action, a

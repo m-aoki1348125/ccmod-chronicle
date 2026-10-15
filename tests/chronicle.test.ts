@@ -970,3 +970,21 @@ test('/clear drops the burn alert', async ($, on) => {
   expect(await pane.find({ key: 'rainbow-now-burn' })).toBeUndefined()
   await pane.unmount()
 })
+
+test('the Improve tab names the user\'s own review agents found in their folders', async ($, on) => {
+  const { clock } = stubEngine(on)
+  const listed: string[] = []
+  on('session.cwd', () => ({ value: '/work/demo-app' }))
+  on('fs.exists', ($: any, e: any) => ({ value: e.path === '/work/demo-app/.git' }))
+  on('fs.list', ($: any, e: any) => {
+    listed.push(e.path)
+    if (e.path === '/home/u/.claude/agents') return { value: [{ name: 'code-reviewer.md', kind: 'file', size: 1, mtimeMs: 0 }, { name: 'notes', kind: 'dir', size: 0, mtimeMs: 0 }] }
+    throw new Error('ENOENT')
+  })
+  await start($, clock)
+  expect(listed).toContain('/work/demo-app/.claude/skills')
+  await $.command.run({ command: 'chronicle', args: 'improve' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /レビュー用のエージェントが 1 個ありますが/ })).toBeDefined()
+  await ui.unmount()
+})

@@ -1,7 +1,7 @@
 // The Settings tab: every userConfig option, its control, and how a typed value is checked.
 // Pure functions, no mods API. Keys and defaults must match .claude-plugin/plugin.json.
 
-import { EFFORT_OPTIONS, MODEL_OPTIONS, PANE_STYLES } from './ai-config.js'
+import { EFFORT_OPTIONS, MODEL_OPTIONS, PANE_STYLES, settingsField } from './ai-config.js'
 import { LANGUAGE_OPTIONS } from './i18n.js'
 import { BURN, BURN_EFFECTS } from './burn.js'
 
@@ -70,4 +70,19 @@ export function parseSetting(key, raw) {
   const text = String(raw ?? '').replace(/\r\n?/g, '\n')
   if (text.length > MAX_TEXT || CONTROL.test(text.replace(/\n/g, ''))) return { error: 'settingInvalid' }
   return { value: listEntries(text).join(',') }
+}
+
+// This plugin's own /config row for a field. Rows from another plugin with the same name (a fork
+// from another marketplace) are skipped; if ours is still ambiguous, nothing is written.
+export function ownConfigKey(rows, name, field) {
+  const mine = rows.filter((r) => settingsField(r.key, name) === field && (!r.provider || r.provider.plugin === name))
+  // Two rows of our name (e.g. an installed copy and a --plugin-dir copy) cannot be told apart.
+  if (mine.length > 1) return null
+  return mine.length === 1 ? mine[0].key : name + '.' + field
+}
+
+// How many entries of a comma-separated list a new value drops.
+export function removedEntries(before, after) {
+  const next = new Set(listEntries(after))
+  return [...new Set(listEntries(before))].filter((x) => !next.has(x)).length
 }

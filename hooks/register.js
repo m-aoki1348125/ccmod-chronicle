@@ -8,7 +8,8 @@ import { buildTips } from './catalog.js'
 import { renderBand, renderPane, TABS } from './view.js'
 import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
-import { currentValues, listEntries, parseSetting } from './settings-spec.js'
+import { currentValues, listEntries, ownConfigKey, parseSetting, removedEntries } from './settings-spec.js'
+import { readWorkspace } from './assets.js'
 import { digestCharts, liveCharts, localDay } from './charts.js'
 import { BURN, BURN_EFFECTS, EMPTY_BURN, endTurn, isBurning, restoreLast, startTurn } from './burn.js'
 import { addUsage, CREDIT_MODELS, LIVE_FIELDS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
@@ -45,6 +46,8 @@ let ruleCfg = ruleConfig()
 let risky = riskyCommands(ruleCfg)
 let ctx = makeCtx('en', ruleCfg)
 let claudeSettings = {}
+// This session's working directory, Claude Code's folder and the user's agents and skills.
+let workspace = {}
 // The rich view's digest charts, recomputed only when the digest or the local date changes.
 let chartMemo = null
 // The options this activation was loaded with, shown and edited in the Settings tab.
@@ -225,6 +228,7 @@ async function resetSession($) {
 
 async function startSession($) {
   claudeSettings = await readClaudeSettings($)
+  workspace = await readWorkspace($, (await indexPaths($).catch(() => ({}))).claudeDir)
   applyLanguage()
   dismissed = await loadDismissed($)
   await checkVersion($)
@@ -251,7 +255,7 @@ async function readClaudeSettings($) {
 
 // The pane follows the `language` option, or Claude Code's own `language` setting on auto.
 function applyLanguage() {
-  ctx = makeCtx(resolveLang(settings.language, claudeSettings.language), ruleCfg, localFacts(claudeSettings))
+  ctx = makeCtx(resolveLang(settings.language, claudeSettings.language), ruleCfg, { ...localFacts(claudeSettings), ...workspace })
   findings = null
 }
 
@@ -741,21 +745,6 @@ async function setSetting($, field, input) {
   } catch {
     // The reloaded pane draws the new value itself.
   }
-}
-
-// This plugin's own /config row for a field. Rows from another plugin with the same name (a fork
-// from another marketplace) are skipped; if ours is still ambiguous, nothing is written.
-function ownConfigKey(rows, name, field) {
-  const mine = rows.filter((r) => settingsField(r.key, name) === field && (!r.provider || r.provider.plugin === name))
-  // Two rows of our name (e.g. an installed copy and a --plugin-dir copy) cannot be told apart.
-  if (mine.length > 1) return null
-  return mine.length === 1 ? mine[0].key : name + '.' + field
-}
-
-// How many entries of a comma-separated list a new value drops.
-function removedEntries(before, after) {
-  const next = new Set(listEntries(after))
-  return [...new Set(listEntries(before))].filter((x) => !next.has(x)).length
 }
 
 async function copyPrompt($, text, press) {

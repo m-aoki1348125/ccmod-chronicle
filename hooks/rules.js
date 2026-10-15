@@ -4,6 +4,7 @@
 // with the default rules.
 
 import { makeCtx } from './i18n.js'
+import { groundedImprove } from './grounded.js'
 
 export const THRESHOLDS = {
   contextWarnPct: 60,
@@ -264,6 +265,7 @@ export function buildImprove(digest, ctx = makeCtx()) {
     ...recallFindings(tot, digest?.history || {}, ctx),
     ...correctionFindings(digest?.history || {}, ctx),
     ...toolErrorFindings(digest, ctx),
+    ...groundedImprove(digest, ctx),
   ]
 }
 

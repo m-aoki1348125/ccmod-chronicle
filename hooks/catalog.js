@@ -5,6 +5,7 @@
 
 import { isRedoPattern, totals } from './rules.js'
 import { makeCtx } from './i18n.js'
+import { ownAssetTips } from './grounded.js'
 
 const slash = (d, cmd) => d?.history?.slash?.[cmd] || 0
 const tool = (tot, name) => tot.tools[name] || 0
@@ -85,5 +86,7 @@ export function buildTips(digest, ctx = makeCtx(), catalog = CATALOG, limit = MA
     }
     if (hit) out.push({ id: item.id, severity: 'low', title: t(item.key + 'Title'), evidence: t(item.key + 'Evidence', hit), action: t(item.key + 'Concept'), doc: doc(item.slug), details: [] })
   }
-  return out.slice(0, limit)
+  // The user's own agents and skills lead, outside the limit, so dismissing them leaves the
+  // catalog's tips whole.
+  return [...(catalog === CATALOG ? ownAssetTips(digest, ctx) : []), ...out.slice(0, limit)]
 }

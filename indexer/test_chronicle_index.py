@@ -219,6 +219,50 @@ class RobustnessTest(unittest.TestCase):
         [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
         self.assertEqual((s["classifierErrors"], s["denials"], s["toolErrors"]), (1, 1, 1))
 
+    def test_failed_calls_are_counted_by_command_name_only(self):
+        call = lambda i, name, inp: {"type": "tool_use", "id": i, "name": name, "input": inp}
+        err = lambda i, text="boom": {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": i, "is_error": True, "content": text}]}}
+        write_jsonl(self.proj / "s.jsonl", [
+            {"type": "user", "cwd": "/w", "message": {"content": "run the tests"}},
+            {"type": "assistant", "message": {"model": "m", "content": [call("a", "Bash", {"command": "cd app && npm test -- --watch=false"}), call("b", "Bash", {"command": "API_KEY=x pytest -q tests/secret_case.py"}), call("c", "Read", {"file_path": "/w/missing.py"}), call("d", "Bash", {"command": "git push origin main"})]}},
+            err("a"), err("b"), err("c"), err("d", "The user doesn't want to proceed with this tool use."),
+            {"type": "user", "message": {"content": "still failing, try again"}},
+            {"type": "user", "isCompactSummary": True, "message": {"content": "Summary: user said it was not working"}},
+        ])
+        [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
+        self.assertEqual(s["friction"], {"npm test": 1, "pytest": 1})
+        self.assertEqual((s["corrections"], s["dir"]), (1, "-w"))
+        self.assertNotIn("secret_case", json.dumps(s["friction"]))
+
+    def test_command_key_names_the_program_not_the_pipe_tail(self):
+        self.assertEqual(ci.command_key("cd x && npm run build 2>&1 | tail -5"), "npm run build")
+        self.assertEqual(ci.command_key("for f in *.py; do python3 $f; done"), "python3")
+        self.assertEqual(ci.command_key("sudo uv sync"), "uv sync")
+        self.assertEqual(ci.command_key("$P/run.sh"), "Bash")
+        self.assertEqual(ci.command_key("python3 - <<'EOF'\nax.set_axis_off(); plt.show()\nEOF"), "python3")
+
+    def test_command_key_never_keeps_urls_paths_tokens_or_quotes(self):
+        for cmd, key in [
+            ("npx https://user:ghp_secret@host/p.tgz", "npx"),
+            ("npm /Users/me/secret/x.js", "npm"),
+            ("gh ghp_ABCDEFGHIJ0123456789", "gh"),
+            ("bun ./scripts/deploy-prod.ts", "bun"),
+            ('"secret value" | x', "Bash"),
+            ("npm `echo hi`", "npm"),
+            ("sudo -u root ./deploy.sh", "deploy.sh"),
+            ("env -i mytool --x", "mytool"),
+            ("npm run build", "npm run build"),
+            ("uv run pytest -q", "uv run pytest"),
+            ("python3 -m pytest tests", "python3 -m pytest"),
+            ("timeout 60 npm test", "npm test"),
+            ('bash -c "npm test"', "npm test"),
+            ("env -i FOO=1 cargo test", "cargo test"),
+            ("(cd a && make)", "make"),
+            ("npm \\\n  test", "npm test"),
+            ("./scripts/run`x`.sh", "Bash"),
+        ]:
+            self.assertEqual(ci.command_key(cmd), key, cmd)
+
     def test_programs_and_one_shot_calls_are_marked_automated(self):
         write_jsonl(self.proj / "sdk.jsonl", [{"type": "user", "cwd": "/w", "entrypoint": "sdk-cli", "message": {"content": "x"}}, assistant([("Read", {})])])
         write_jsonl(self.proj / "once.jsonl", [{"type": "user", "cwd": "/w", "entrypoint": "claude-desktop", "message": {"content": "summarize"}}, assistant()])

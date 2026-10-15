@@ -15,7 +15,7 @@ what it stores, what can leave the machine, and how to delete it. (日本語の�
 
 | Where | What | Kept for |
 |---|---|---|
-| `~/.claude/chronicle/digest.json`, `cache.json` (file mode 0600, folder 0700) | Per-session counts (tools, models, tokens, errors); names of the subagents, skills, MCP servers and slash commands you used; the first word of your Bash commands (top 60, e.g. `git`, `pytest`); titles; recap text; the first 80 characters of each session's first prompt; edited file paths; working directories; your `extraRiskyCommands` strings as labels | While the transcript exists; after Claude Code deletes it, until `retentionDays` after the session ended (default: Claude Code's `cleanupPeriodDays`, so usually together with the transcript) |
+| `~/.claude/chronicle/digest.json`, `cache.json` (file mode 0600, folder 0700) | Per-session counts (tools, models, tokens, errors); names of the subagents, skills, MCP servers and slash commands you used; the first word of your Bash commands (top 60, e.g. `git`, `pytest`); for failed tool calls, the tool or program name (with the subcommand for CLIs such as `npm test` or `git push`, never other arguments or output); the number of redo requests in each session; the transcript's folder name; titles; recap text; the first 80 characters of each session's first prompt; edited file paths; working directories; your `extraRiskyCommands` strings as labels | While the transcript exists; after Claude Code deletes it, until `retentionDays` after the session ended (default: Claude Code's `cleanupPeriodDays`, so usually together with the transcript) |
 | Plugin store (`$.store`, a JSON file Claude Code keeps) | Dismissed findings; cached AI explanations (model output, 40 entries) | Explanations: 14 days. Dismissals: until `/chronicle purge` |
 | Session state (`$.state`) | The open tab and detail, Now warnings (full paths of code files you edited and risky-command counts), Now explanations, this session's token total | This session (other installed plugins can read session state) |
 
@@ -35,9 +35,16 @@ through Claude Code, using your plan or API key, like any other Claude Code requ
   text and project paths are never sent.
 - Names you configure appear in findings and can be sent with them: your `reviewerAgents` names and
   your `extraRiskyCommands` strings (as typed, unless they look like a path). Other agent, skill and
-  command names stay on the machine.
+  command names stay on the machine: findings that name a failed command or your own agents send the
+  model a version that says "a command" or "their names" instead.
 
-**Ask Claude to apply** posts a fixed prompt to your conversation. No telemetry is sent by this mod.
+The mod also lists the names in `~/.claude/agents`, `~/.claude/skills` and this project's
+`.claude/agents` and `.claude/skills` to suggest your own agents and skills. It reads names only and
+keeps them in memory, not on disk.
+
+**Ask Claude to apply** posts a prompt to your conversation. For the Improve findings of this
+repository (a command that keeps failing, redo requests that keep coming back) it includes the
+command name and the local paths of the transcripts it refers to, so Claude can read them. No telemetry is sent by this mod.
 
 ## Deleting it
 
@@ -61,4 +68,10 @@ through Claude Code, using your plan or API key, like any other Claude Code requ
 - **削除**：`/chronicle purge`。インストールしたままだと次の起動で集計し直します（止めるには無効化かアンインストール）。
   アンインストールだけでは `~/.claude/chronicle/` は残ります。
 - **ローカルに保存する名前**：使ったサブエージェント・skill・MCP サーバー・スラッシュコマンドの名前と、Bash コマンドの
-  先頭の語。モデルに送るのは、設定した `reviewerAgents` と `extraRiskyCommands` の文字列だけです。
+  先頭の語、失敗したツール呼び出しのツール名・プログラム名（`npm test` のようなサブコマンドまで。ほかの引数や出力は保存しません）、
+  セッションごとのやり直しの回数、会話ログのフォルダ名。モデルに送るのは、設定した `reviewerAgents` と `extraRiskyCommands` の
+  文字列だけです。失敗したコマンド名や手元のエージェント名を含む指摘は、名前を伏せた文にしてから送ります。
+- **読み取る名前**：`~/.claude/agents`・`~/.claude/skills` と、このプロジェクトの `.claude/agents`・`.claude/skills` の
+  名前だけを読み、手元のエージェントと skill の提案に使います（ファイルには保存しません）。
+- **適用を依頼**：このリポジトリの Improve の指摘（繰り返し失敗するコマンド、繰り返すやり直し）では、コマンド名と根拠となる
+  会話ログのパスをプロンプトに含めて会話に送ります。

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+Findings grounded in what happened, after GitHub Copilot CLI's `/chronicle improve` and `tips`:
+
+- Improve looks at the open repository (in a git repository, its subfolders too; elsewhere only
+  that folder). A command that failed 3 or more times across 2 or more sessions is named
+  (`npm test` failed 14 times in 3 sessions), and so are redo requests that keep coming back.
+  **Apply** asks Claude to read those transcripts and draft CLAUDE.md lines as a diff, then to be
+  checked with `/doctor prompt-audit`. A pattern must recur across sessions, so one bad afternoon
+  does not become advice; only Bash programs and MCP tools are counted, everyday shell utilities left out.
+- Your own agents and skills (`~/.claude` and the project's `.claude`): unused ones lead the Tips,
+  by name (`/skill-doctor` for the details), and review agents you have are suggested for
+  `reviewerAgents` while the review check is off.
+- The model never reads those names: such findings send "a command" or "their names" instead.
+  The indexer stores failed tool and program names, per-session redo counts and the transcript
+  folder name (schema 11, see PRIVACY.md).
+
 ## 0.8.1
 
 Findings checked against real data and corrected:
