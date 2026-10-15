@@ -234,6 +234,13 @@ class RobustnessTest(unittest.TestCase):
         self.assertEqual((s["corrections"], s["dir"]), (1, "-w"))
         self.assertNotIn("secret_case", json.dumps(s["friction"]))
 
+    def test_transcripts_in_an_unknown_format_are_counted(self):
+        write_jsonl(self.proj / "new.jsonl", [{"kind": "message", "cwd": "/w", "body": str(i)} for i in range(6)])
+        write_jsonl(self.proj / "ok.jsonl", [{"type": "user", "cwd": "/w", "message": {"content": "a"}}])
+        digest = ci.build(self.claude, self.root / "out", [])
+        self.assertEqual(digest["stats"]["unreadable"], 1)
+        self.assertEqual({s["id"]: s["readable"] for s in digest["sessions"]}, {"new": False, "ok": True})
+
     def test_command_key_names_the_program_not_the_pipe_tail(self):
         self.assertEqual(ci.command_key("cd x && npm run build 2>&1 | tail -5"), "npm run build")
         self.assertEqual(ci.command_key("for f in *.py; do python3 $f; done"), "python3")

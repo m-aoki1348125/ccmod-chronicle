@@ -28,7 +28,7 @@ from chronicle_io import (
 )
 from chronicle_text import classify_api_error, first_plain_text, first_text
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 CODE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go", ".swift", ".kt", ".java", ".c", ".cpp", ".cs", ".rb"}
 RISKY_PATTERNS = [
     (re.compile(r"\brm\s+-\w*r"), "rm -r"),
@@ -51,6 +51,11 @@ SLASH_RE = re.compile(r"^/[A-Za-z][\w:-]*(?=\s|$)")
 COMMAND_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
 MAX_BASH_HEADS = 60
 MAX_FRICTION = 30
+# Record types the indexer understands. A transcript with lines but none of these was written in a
+# format this version does not know (the transcript format is internal to Claude Code).
+KNOWN_TYPES = {"user", "assistant", "system", "summary", "custom-title", "ai-title", "permission-mode",
+               "last-prompt", "queue-operation", "file-history-snapshot", "attachment", "cost-state"}
+MIN_RECORDS_TO_JUDGE = 5
 # CLIs whose first argument names the action (`npm test`, `git push`); the pair is the friction key.
 # (npx / uvx / bunx are left out: their first argument is a package, a path or a URL.)
 SUBCOMMAND_CLIS = {"npm", "pnpm", "yarn", "bun", "uv", "git", "cargo", "go", "make", "docker", "gh", "pip", "poetry", "kubectl", "terraform", "dotnet", "mvn", "gradle"}
@@ -124,6 +129,8 @@ class SessionStats:
     entrypoint: str | None = None
     prompts: int = 0
     corrections: int = 0
+    records: int = 0
+    known_records: int = 0
     transcript_dir: str = ""
     # tool_use id -> what failed, by tool and command name only (never arguments or output)
     pending: dict = field(default_factory=dict)
@@ -179,6 +186,7 @@ class SessionStats:
             "friction": dict(self.friction.most_common(MAX_FRICTION)),
             # The transcript's folder under projects/, so a prompt can point Claude at it.
             "dir": self.transcript_dir,
+            "readable": self.records < MIN_RECORDS_TO_JUDGE or self.known_records > 0,
             "permModes": dict(self.perm_modes),
             "subUsage": sum_ledger(self.sub_ledger),
             "subTools": dict(self.sub_tools),
@@ -385,6 +393,8 @@ def summarize_main(path: Path, opts: IndexOptions) -> SessionStats:
             stats.cwds.add(d["cwd"])
             stats.project = stats.project or d["cwd"]
         ty = d.get("type")
+        stats.records += 1
+        stats.known_records += ty in KNOWN_TYPES
         if ty == "assistant":
             record_assistant(stats, d, opts)
         elif ty == "user":
@@ -536,7 +546,7 @@ def build(claude_dir: Path, out_dir: Path, opts) -> dict:
     digest = {
         "schema": SCHEMA_VERSION,
         "generatedAt": datetime.now().astimezone().isoformat(),
-        "stats": {"scanned": scanned, "reused": reused, "sessions": len(kept)},
+        "stats": {"scanned": scanned, "reused": reused, "sessions": len(kept), "unreadable": sum(1 for s in kept if s.get("readable") is False)},
         "history": summarize_history(claude_dir / "history.jsonl", opts),
         "sessions": sorted(kept, key=lambda s: s.get("end") or ""),
     }

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+Positioned alongside Claude Code's own features:
+
+- Now points to `/usage` and `/context` for the full breakdown of live numbers instead of
+  repeating them.
+- Cost, Tips and Improve say what they cover: the first day and number of sessions, and how long
+  Claude Code keeps transcripts (`cleanupPeriodDays`).
+- A new tip suggests `/insights`, Claude Code's AI-written report, to those who never ran it.
+- The indexer counts transcripts in a format it does not know (schema 12); when they are a fifth
+  of the sessions, the pane warns that a Claude Code update may have changed the format.
+- README: a table of which question each official command answers and which this mod answers.
+
 ## 0.9.0
 
 Findings grounded in what happened, after GitHub Copilot CLI's `/chronicle improve` and `tips`:

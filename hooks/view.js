@@ -139,6 +139,7 @@ function statusLine(el, model, h) {
         children: [
           Text({ ...(color ? { color } : { dimColor: true }), wrap: 'truncate-end', children: [clean(text)] }),
           model.versionWarning ? Text({ color: 'warning', wrap: 'truncate-end', children: [t('oldVersion', model.versionWarning)] }) : null,
+          model.status.unreadable ? Text({ color: 'warning', children: [t('formatWarning', { n: model.status.unreadable })] }) : null,
         ].filter(Boolean),
       }),
       Box({
@@ -157,9 +158,20 @@ function body(el, model, h) {
   if (model.tab === 'standup') return standup(el, model, h)
   if (model.tab === 'settings') return settingsTab(el, model, h)
   const list = model.lists[model.tab] || []
-  if (!list.length) return [emptyState(el, model)]
-  const cards = list.map((f) => findingCard(el, model.t, f, h, model.burnEffect))
-  return isRich(model) ? [heading(el, model.t('findingsHead'), model.t('findingsCount', { n: list.length })), ...cards] : cards
+  const cards = list.length ? list.map((f) => findingCard(el, model.t, f, h, model.burnEffect)) : [emptyState(el, model)]
+  const head = isRich(model) && list.length ? [heading(el, model.t('findingsHead'), model.t('findingsCount', { n: list.length }))] : []
+  return [...scopeNote(el, model), ...head, ...cards, ...officialNote(el, model)]
+}
+
+// The history tabs say what they cover; Claude Code keeps transcripts for cleanupPeriodDays.
+function scopeNote(el, model) {
+  if (!['cost', 'tips', 'improve'].includes(model.tab) || !model.coverage) return []
+  return [meta(el, model.t('coverage', model.coverage))]
+}
+
+// Live numbers are Claude Code's own: Now points to them rather than repeating them.
+function officialNote(el, model) {
+  return model.tab === 'now' ? [meta(el, model.t('officialNow'))] : []
 }
 
 function emptyState(el, model) {

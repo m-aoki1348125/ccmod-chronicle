@@ -59,6 +59,24 @@ finding is a colored dot, its title, then the severity word (HIGH / MID / LOW) w
 the next step after `→`, and its actions as text. Colors are Claude Code theme colors, so they
 follow your light or dark theme, and none carries meaning without a word beside it.
 
+## Alongside Claude Code's own features
+
+Live numbers and CLAUDE.md checks are left to Claude Code itself. This mod looks back over days and
+sessions of your own use.
+
+| To see | Use |
+|---|---|
+| Spend, plan limits, what fills the context now | `/usage`, `/context`, the status line |
+| An AI-written report of recent sessions | `/insights` |
+| Stale or conflicting lines in CLAUDE.md and skills | `/doctor prompt-audit`, `/skill-doctor` |
+| Work over 1 / 3 / 7 days, by project | this mod's Standup |
+| A warning when tokens burn fast | this mod's burn alert |
+| Failures and redo requests that recur in this repository; your own agents | this mod's Improve and Tips |
+
+Only the transcripts Claude Code keeps can be analysed (`cleanupPeriodDays`, 30 days by default);
+Cost, Tips and Improve say what period and how many sessions they cover. The transcript format is
+internal to Claude Code, so the pane warns when many transcripts cannot be read.
+
 ## Settings
 
 Change these in the **Settings** tab (`6` or `/chronicle settings`), in `/config`, or in `/plugin` → Installed → ccmod-chronicle → Configure. With `--plugin-dir`,

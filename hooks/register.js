@@ -372,7 +372,15 @@ function viewModel(nowMs, view = {}) {
   const detail = resolveDetail(lists)
   const raw = Math.floor(Number(view.cols))
   const cols = Number.isFinite(raw) && raw > 0 ? Math.min(MAX_COLS, raw) : DEFAULT_COLS
-  return { t: ctx.t, nowMs, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [], surface: view.surface, cols, burnEffect: burnCfg.effect, ...richView(nowMs) }
+  return { t: ctx.t, nowMs, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [], surface: view.surface, cols, burnEffect: burnCfg.effect, coverage: coverage(), ...richView(nowMs) }
+}
+
+// What the digest covers: the first local day of its readable work sessions, and how long Claude
+// Code keeps transcripts (its cleanupPeriodDays, not this mod's retentionDays for summaries).
+function coverage() {
+  const starts = workSessions(digest).filter((s) => s.readable !== false).map((s) => Date.parse(s.start)).filter(Number.isFinite)
+  if (!starts.length) return null
+  return { since: localDay(Math.min(...starts)), n: starts.length, keepDays: clampDays(claudeSettings.cleanupPeriodDays) || DEFAULT_CLEANUP_DAYS }
 }
 
 // Charts are computed only for the rich style; the view sizes them to the pane's body.
@@ -475,12 +483,19 @@ function adoptDigest($, raw) {
   explain = Object.fromEntries(Object.entries(explain).filter(([id]) => isSessionOnly(id)))
   digestEpoch += 1
   const isBig = new TextEncoder().encode(raw).length > MAX_DIGEST_BYTES
-  status = { indexing: false, generatedAt: digest.generatedAt, sessions: workSessions(digest).length, error: isBig ? ctx.t('digestBig') : null }
+  status = { indexing: false, generatedAt: digest.generatedAt, sessions: workSessions(digest).length, error: isBig ? ctx.t('digestBig') : null, unreadable: unreadableShare(digest) }
   if (tab === 'standup') loadGitLogs($)
   adoptPendingDetail($)
   // An open detail view now shows re-indexed numbers; explain them afresh.
   const open = resolveDetail({ now: buildNow(live, ctx), ...digestFindings() })
   if (open && !open.isResolved) explainFinding($, open, { force: false, allowCall: autoCallAllowed() })
+}
+
+// Transcripts the indexer could not read: Claude Code may have changed their (internal) format.
+// Shown once they are a fifth of the sessions, and at least three.
+function unreadableShare(d) {
+  const n = Number(d?.stats?.unreadable) || 0
+  return n >= 3 && n >= (d.sessions?.length || 0) * 0.2 ? n : 0
 }
 
 // Where Claude Code keeps its files: CLAUDE_CONFIG_DIR when set, else ~/.claude.

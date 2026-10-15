@@ -57,6 +57,24 @@ cache read・compaction 時のトークン数、Standup：日ごとのプロン�
 指摘は、色付きの点とタイトル、その下に重さの語（高・中・低）と根拠、`→` に続く次の一手、文字のボタンで
 構成されます。色は Claude Code のテーマ色なのでライト・ダークどちらにも追従し、どの色にも語を添えています。
 
+## Claude Code の公式機能との使い分け
+
+今のセッションの数値と CLAUDE.md の点検は、Claude Code の公式機能に任せています。この mod は、
+複数日・複数セッションにわたる、あなたの使い方の振り返りに絞っています。
+
+| 知りたいこと | 使うもの |
+|---|---|
+| 今の利用額、プランの上限、コンテキストの内訳 | `/usage`、`/context`、ステータスライン |
+| AI が書いた直近セッションのレポート | `/insights` |
+| CLAUDE.md や skill の矛盾・古い記述の点検 | `/doctor prompt-audit`、`/skill-doctor` |
+| 1 / 3 / 7 日の作業のまとめ、プロジェクト別の振り返り | この mod の Standup |
+| トークン消費ペースの警告 | この mod の消費アラート |
+| このリポジトリで繰り返す失敗とやり直し、手元のエージェントの活用 | この mod の Improve と Tips |
+
+集計できるのは、Claude Code が残している会話ログの範囲だけです（`cleanupPeriodDays`、既定 30 日）。
+Cost・Tips・Improve の上に、対象の期間とセッション数を表示します。会話ログの形式は Claude Code の
+内部仕様なので、読めない会話ログが増えたときはペインに警告を出します。
+
 ## 設定
 
 **Settings** タブ（`6` か `/chronicle settings`）、`/config`、または `/plugin` → Installed → ccmod-chronicle → Configure で変更します。`--plugin-dir` で

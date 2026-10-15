@@ -46,3 +46,9 @@ test('Tips and Improve agree on whether redo prompts are a pattern', () => {
   expect(ids(buildImprove(DIGEST))).toContain('improve-corrections')
   expect(ids(buildTips(DIGEST))).toContain('tip-rewind')
 })
+
+test('the /insights tip appears for a long history that never used it, and not once it is used', () => {
+  expect(ids(buildTips(DIGEST, makeCtx('en'), undefined, 20))).toContain('tip-insights')
+  const used = { ...DIGEST, history: { ...DIGEST.history, slash: { ...DIGEST.history.slash, '/insights': 1 } } }
+  expect(ids(buildTips(used, makeCtx('en'), undefined, 20))).not.toContain('tip-insights')
+})

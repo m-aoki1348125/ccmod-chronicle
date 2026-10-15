@@ -68,6 +68,12 @@ export const CATALOG = [
     id: 'tip-output-style', key: 'tipStyle', slug: 'output-styles',
     check: (d) => (slash(d, '/output-style') === 0 && prompts(d) >= 500 ? {} : null),
   },
+  {
+    // Claude Code's own report, written by a model over recent sessions: the mod's counts complement
+    // it. Last, so it never takes the place of a specific tip.
+    id: 'tip-insights', key: 'tipInsights', slug: 'commands',
+    check: (d) => (slash(d, '/insights') === 0 && prompts(d) >= 300 ? { prompts: prompts(d) } : null),
+  },
 ]
 
 export const MAX_TIPS = 5

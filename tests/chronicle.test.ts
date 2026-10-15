@@ -988,3 +988,23 @@ test('the Improve tab names the user\'s own review agents found in their folders
   expect(await ui.find({ type: 'Text', text: /レビュー用のエージェントが 1 個ありますが/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('Now points to /usage and /context; the history tabs say what they cover', async ($, on) => {
+  const { clock } = stubEngine(on)
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /\/usage（利用額とプランの上限）と \/context/ })).toBeDefined()
+  await ui.press({ key: 'tab-cost' })
+  expect(await ui.find({ type: 'Text', text: /^対象: 2026-09-01 以降の 2 セッション（会話ログは 30 日間保存されます/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a digest with many unreadable transcripts warns that the format may have changed', async ($, on) => {
+  const { clock } = stubEngine(on, { digest: { ...DIGEST, stats: { ...DIGEST.stats, unreadable: 3 }, sessions: [...DIGEST.sessions, ...DIGEST.sessions] } })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /3 セッションの会話ログを読めませんでした/ })).toBeDefined()
+  await ui.unmount()
+})
