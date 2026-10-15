@@ -51,6 +51,12 @@ export function ruleConfig(options = {}) {
   })
 }
 
-export function makeCtx(lang = 'en', cfg = ruleConfig()) {
-  return Object.freeze({ lang, t: makeT(lang), doc: (slug) => docUrl(lang, slug), cfg })
+// Facts from Claude Code's own settings that decide whether a tip applies.
+export function localFacts(settings = {}) {
+  const perModel = Object.values(settings?.modelSettings || {}).some((m) => m && typeof m === 'object' && m.effortLevel)
+  return Object.freeze({ effortConfigured: Boolean(settings?.effortLevel) || perModel })
+}
+
+export function makeCtx(lang = 'en', cfg = ruleConfig(), local = localFacts()) {
+  return Object.freeze({ lang, t: makeT(lang), doc: (slug) => docUrl(lang, slug), cfg, local })
 }

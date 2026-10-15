@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.1
+
+Findings checked against real data and corrected:
+
+- Workflow agents' transcripts (`subagents/workflows/*/agent-*.jsonl`) are now counted; they
+  held most of the subagent output.
+- SDK runs and one-shot calls with no tools and no title are marked `automated` and left out of
+  the standup, the totals and the model mix.
+- Auto mode classifier failures are counted apart from tool errors; "you haven't granted it yet"
+  counts as a denial. Tool errors are flagged by their share of tool calls (5%), not a bare count.
+- The effort tip stays quiet when effort is set in settings (`effortLevel` or `modelSettings`).
+- Tips citing redo prompts use the same test as Improve; a "continue" right after `/model`,
+  `/rate-limit-options` or `/login` is not a resume prompt; a compaction repeated in a copied
+  session file counts once; the heavy-sessions finding links to the costs page.
+
 ## 0.8.0
 
 - Burn alert: when a turn spends tokens faster than `burnAlert` (100k tokens/min by default;

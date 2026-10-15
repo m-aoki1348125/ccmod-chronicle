@@ -197,6 +197,35 @@ class RobustnessTest(unittest.TestCase):
         [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
         self.assertEqual(s["subUsage"]["claude-sonnet-x"], {"in": 3, "out": 110, "cacheRead": 0, "cacheWrite": 0})
 
+    def test_workflow_agents_a_level_down_are_counted(self):
+        write_jsonl(self.proj / "s.jsonl", [{"type": "user", "cwd": "/w", "message": {"content": "a"}}])
+        sub = {"type": "assistant", "message": {"id": "w1", "model": "claude-opus-x", "usage": {"input_tokens": 1, "output_tokens": 700}, "content": [{"type": "tool_use", "name": "Read", "input": {}}]}}
+        write_jsonl(self.proj / "s" / "subagents" / "workflows" / "wf_1" / "agent-a.jsonl", [sub])
+        [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
+        self.assertEqual((s["subUsage"]["claude-opus-x"]["out"], s["subTools"]), (700, {"Read": 1}))
+        # A new workflow file changes the signature, so the session is read again.
+        write_jsonl(self.proj / "s" / "subagents" / "workflows" / "wf_2" / "agent-b.jsonl", [{**sub, "message": {**sub["message"], "id": "w2"}}])
+        [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
+        self.assertEqual(s["subUsage"]["claude-opus-x"]["out"], 1400)
+
+    def test_auto_mode_classifier_failures_are_neither_denials_nor_tool_errors(self):
+        res = lambda text: {"type": "user", "message": {"content": [{"type": "tool_result", "is_error": True, "content": text}]}}
+        write_jsonl(self.proj / "s.jsonl", [
+            {"type": "user", "cwd": "/w", "message": {"content": "a"}},
+            res("The server-side auto mode classifier gave no verdict (error), so auto mode cannot determine the safety of Bash right now."),
+            res("Claude requested permissions to use WebFetch, but you haven't granted it yet."),
+            res("Error: file not found"),
+        ])
+        [s] = ci.build(self.claude, self.root / "out", [])["sessions"]
+        self.assertEqual((s["classifierErrors"], s["denials"], s["toolErrors"]), (1, 1, 1))
+
+    def test_programs_and_one_shot_calls_are_marked_automated(self):
+        write_jsonl(self.proj / "sdk.jsonl", [{"type": "user", "cwd": "/w", "entrypoint": "sdk-cli", "message": {"content": "x"}}, assistant([("Read", {})])])
+        write_jsonl(self.proj / "once.jsonl", [{"type": "user", "cwd": "/w", "entrypoint": "claude-desktop", "message": {"content": "summarize"}}, assistant()])
+        write_jsonl(self.proj / "work.jsonl", [{"type": "user", "cwd": "/w", "entrypoint": "claude-desktop", "message": {"content": "fix it"}}, assistant([("Edit", {"file_path": "/w/a.py"})])])
+        flags = {s["id"]: (s["automated"], s["entrypoint"], s["prompts"]) for s in ci.build(self.claude, self.root / "out", [])["sessions"]}
+        self.assertEqual(flags, {"sdk": (True, "sdk-cli", 1), "once": (True, "claude-desktop", 1), "work": (False, "claude-desktop", 1)})
+
     def test_deleted_multi_cwd_session_is_dropped_when_later_cwd_is_excluded(self):
         write_jsonl(self.proj / "multi.jsonl", [
             {"type": "user", "cwd": "/w/keep", "message": {"content": "a"}},
@@ -261,6 +290,11 @@ class OptionsTest(unittest.TestCase):
         self.history("keep going", "Continue.", "that's wrong, try again", "it still doesn't work", "please add tests")
         h = ci.build(self.claude, self.root / "out", [])["history"]
         self.assertEqual((h["resumePrompts"], h["correctionPrompts"]), (2, 2))
+
+    def test_resuming_after_a_pause_command_is_not_a_resume_prompt(self):
+        self.history("/model", "続けて", "/rate-limit-options", "continue", "fix the bug", "continue")
+        h = ci.build(self.claude, self.root / "out", [])["history"]
+        self.assertEqual(h["resumePrompts"], 1)
 
     def test_memory_cues_follow_the_option(self):
         self.history("as we did last time", "check the Team Wiki")

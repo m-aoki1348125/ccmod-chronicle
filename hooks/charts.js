@@ -3,7 +3,7 @@
 // dataviz method: categorical slots in fixed order (validated light and dark), one blue for
 // magnitude, status colors only for state and always beside an icon and a word.
 
-import { THRESHOLDS, TRIGGERS, sessionCacheRead, sessionLabel, totals } from './rules.js'
+import { THRESHOLDS, TRIGGERS, sessionCacheRead, sessionLabel, totals, workSessions } from './rules.js'
 
 // Dark-surface steps: the terminal's background is unknown, and most are dark.
 export const SERIES = Object.freeze(['#3987e5', '#d95926', '#199e70', '#c98500'])
@@ -60,7 +60,7 @@ function lastDays(byDay = {}, nowMs) {
 // The digest's charts; they change only with the digest and the local date, so callers memoize them.
 export function digestCharts(digest, nowMs) {
   const tot = totals(digest)
-  const heavy = (digest?.sessions || []).map((s) => ({ label: sessionLabel(s), value: sessionCacheRead(s) })).filter((r) => r.value > 0)
+  const heavy = workSessions(digest).map((s) => ({ label: sessionLabel(s), value: sessionCacheRead(s) })).filter((r) => r.value > 0)
   heavy.sort((a, b) => b.value - a.value)
   const compactions = tot.compactions.filter((c) => c.preTokens).slice(-COMPACT_ROWS)
   const usage = Object.values(tot.usage)

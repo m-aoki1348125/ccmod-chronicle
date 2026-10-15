@@ -3,7 +3,7 @@
 // exists under /docs/en/ and /docs/ja/. A check returns null when the tip does not apply, or
 // the params for its evidence string when it does.
 
-import { totals } from './rules.js'
+import { isRedoPattern, totals } from './rules.js'
 import { makeCtx } from './i18n.js'
 
 const slash = (d, cmd) => d?.history?.slash?.[cmd] || 0
@@ -17,6 +17,7 @@ const agents = (tot) => tool(tot, 'Agent') + tool(tot, 'Task') + tool(tot, 'Work
 const prompts = (d) => d.history?.prompts || 0
 const redo = (d) => d.history?.correctionPrompts || 0
 
+// Checks take (digest, totals, local): local holds facts read from Claude Code's settings (i18n.js).
 // Ordered by expected payoff; `key` names the tipXxxTitle / Concept / Evidence strings.
 export const CATALOG = [
   {
@@ -29,18 +30,19 @@ export const CATALOG = [
   },
   {
     id: 'tip-rewind', key: 'tipRewind', slug: 'checkpointing',
-    check: (d) => (slash(d, '/rewind') === 0 && redo(d) >= 5 ? { n: redo(d) } : null),
+    check: (d) => (slash(d, '/rewind') === 0 && isRedoPattern(d.history) ? { n: redo(d) } : null),
   },
   {
     id: 'tip-plan-mode', key: 'tipPlan', slug: 'permission-modes',
     check: (d, tot) => {
       const r = permRatio(tot, 'plan')
-      return r !== null && r < 0.03 && redo(d) >= 5 ? { pct: Math.round(r * 100), n: redo(d) } : null
+      return r !== null && r < 0.03 && isRedoPattern(d.history) ? { pct: Math.round(r * 100), n: redo(d) } : null
     },
   },
   {
     id: 'tip-effort', key: 'tipEffort', slug: 'model-config',
-    check: (d) => (slash(d, '/model') >= 30 && slash(d, '/effort') < 10 ? { model: slash(d, '/model'), effort: slash(d, '/effort') } : null),
+    // Effort set in settings (effortLevel, or per model in modelSettings) is already in use.
+    check: (d, tot, local) => (!local.effortConfigured && slash(d, '/model') >= 30 && slash(d, '/effort') < 10 ? { model: slash(d, '/model'), effort: slash(d, '/effort') } : null),
   },
   {
     id: 'tip-hooks-checks', key: 'tipHooks', slug: 'hooks-guide',
@@ -76,7 +78,7 @@ export function buildTips(digest, ctx = makeCtx(), catalog = CATALOG, limit = MA
   for (const item of catalog) {
     let hit = null
     try {
-      hit = item.check(digest || {}, tot)
+      hit = item.check(digest || {}, tot, ctx.local || {})
     } catch {
       // A rule that cannot read this digest simply does not apply.
       hit = null

@@ -2,8 +2,8 @@
 // Heavy lifting (reading ~800MB of transcripts) runs in indexer/chronicle_index.py
 // via $.process.run; this module renders the digest plus live session signals.
 
-import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, isReviewer, riskyCommands, trackToolCall } from './rules.js'
-import { makeCtx, resolveLang, ruleConfig } from './i18n.js'
+import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, workSessions, isReviewer, riskyCommands, trackToolCall } from './rules.js'
+import { localFacts, makeCtx, resolveLang, ruleConfig } from './i18n.js'
 import { buildTips } from './catalog.js'
 import { renderBand, renderPane, TABS } from './view.js'
 import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
@@ -251,7 +251,7 @@ async function readClaudeSettings($) {
 
 // The pane follows the `language` option, or Claude Code's own `language` setting on auto.
 function applyLanguage() {
-  ctx = makeCtx(resolveLang(settings.language, claudeSettings.language), ruleCfg)
+  ctx = makeCtx(resolveLang(settings.language, claudeSettings.language), ruleCfg, localFacts(claudeSettings))
   findings = null
 }
 
@@ -471,7 +471,7 @@ function adoptDigest($, raw) {
   explain = Object.fromEntries(Object.entries(explain).filter(([id]) => isSessionOnly(id)))
   digestEpoch += 1
   const isBig = new TextEncoder().encode(raw).length > MAX_DIGEST_BYTES
-  status = { indexing: false, generatedAt: digest.generatedAt, sessions: digest.sessions.length, error: isBig ? ctx.t('digestBig') : null }
+  status = { indexing: false, generatedAt: digest.generatedAt, sessions: workSessions(digest).length, error: isBig ? ctx.t('digestBig') : null }
   if (tab === 'standup') loadGitLogs($)
   adoptPendingDetail($)
   // An open detail view now shows re-indexed numbers; explain them afresh.

@@ -28,7 +28,7 @@ from chronicle_io import (
 )
 from chronicle_text import classify_api_error, first_plain_text, first_text
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 CODE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go", ".swift", ".kt", ".java", ".c", ".cpp", ".cs", ".rb"}
 RISKY_PATTERNS = [
     (re.compile(r"\brm\s+-\w*r"), "rm -r"),
@@ -51,7 +51,13 @@ SLASH_RE = re.compile(r"^/[A-Za-z][\w:-]*(?=\s|$)")
 COMMAND_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\|)\s*")
 MAX_BASH_HEADS = 60
 DEFAULT_MEMORY_CUES = ("前回", "以前", "覚えて", "last time", "previously", "remember when")
-DENIAL_MARKERS = ("doesn't want to proceed", "user rejected", "rejected by the user", "permission to use", "was denied by the user")
+DENIAL_MARKERS = ("doesn't want to proceed", "user rejected", "rejected by the user", "permission to use", "was denied by the user", "but you haven't granted it yet")
+# Auto mode could not judge a call (its classifier erred, skipped or was unavailable): not the tool's fault.
+CLASSIFIER_MARKERS = ("auto mode cannot determine the safety",)
+# Entrypoints of programs driving Claude Code, never a person at the prompt.
+SDK_ENTRYPOINTS = ("sdk-cli", "sdk-ts", "sdk-py")
+# A "keep going" prompt right after one of these resumes after a pause the user chose, not a long task.
+PAUSE_COMMANDS = ("/model", "/rate-limit-options", "/login", "/effort", "/usage-credits")
 
 
 @dataclass(frozen=True)
@@ -107,11 +113,20 @@ class SessionStats:
     api_errors: Counter = field(default_factory=Counter)
     tool_errors: int = 0
     denials: int = 0
+    classifier_errors: int = 0
+    entrypoint: str | None = None
+    prompts: int = 0
     perm_modes: Counter = field(default_factory=Counter)
     sub_ledger: dict = field(default_factory=dict)
     sub_tools: Counter = field(default_factory=Counter)
     bash_heads: Counter = field(default_factory=Counter)
     seen_ids: set = field(default_factory=set)
+
+    def is_automated(self) -> bool:
+        """A program's run (SDK), or a one-shot call with no tools and no title (desktop helpers)."""
+        if self.entrypoint in SDK_ENTRYPOINTS:
+            return True
+        return not self.tools and not self.title and self.prompts <= 1
 
     def to_json(self) -> dict:
         turns = sorted(self.turn_ms)
@@ -143,6 +158,10 @@ class SessionStats:
             "apiErrors": dict(self.api_errors),
             "toolErrors": self.tool_errors,
             "denials": self.denials,
+            "classifierErrors": self.classifier_errors,
+            "entrypoint": self.entrypoint,
+            "prompts": self.prompts,
+            "automated": self.is_automated(),
             "permModes": dict(self.perm_modes),
             "subUsage": sum_ledger(self.sub_ledger),
             "subTools": dict(self.sub_tools),
@@ -232,16 +251,19 @@ def record_assistant(stats: SessionStats, d: dict, opts: IndexOptions) -> None:
 def record_user(stats: SessionStats, d: dict) -> None:
     msg = d.get("message") if isinstance(d.get("message"), dict) else {}
     content = msg.get("content")
-    if stats.first_prompt is None and not d.get("isMeta"):
-        text = first_plain_text(content)
-        if text:
+    text = "" if d.get("isMeta") else first_plain_text(content)
+    if text:
+        stats.prompts += 1
+        if stats.first_prompt is None:
             stats.first_prompt = " ".join(text.split())[:FIRST_PROMPT_CHARS]
     if not isinstance(content, list):
         return
     for c in content:
         if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("is_error"):
             text = str(c.get("content"))[:300].lower()
-            if any(m in text for m in DENIAL_MARKERS):
+            if any(m in text for m in CLASSIFIER_MARKERS):
+                stats.classifier_errors += 1
+            elif any(m in text for m in DENIAL_MARKERS):
                 stats.denials += 1
             else:
                 stats.tool_errors += 1
@@ -267,6 +289,8 @@ def summarize_main(path: Path, opts: IndexOptions) -> SessionStats:
         if isinstance(ts, str):
             stats.start = stats.start or ts
             stats.end = ts
+        if isinstance(d.get("entrypoint"), str) and not stats.entrypoint:
+            stats.entrypoint = d["entrypoint"][:40]
         if isinstance(d.get("cwd"), str) and d["cwd"]:
             stats.cwds.add(d["cwd"])
             stats.project = stats.project or d["cwd"]
@@ -289,7 +313,8 @@ def summarize_main(path: Path, opts: IndexOptions) -> SessionStats:
 def merge_subagents(stats: SessionStats, sub_dir: Path) -> None:
     if not sub_dir.is_dir():
         return
-    for f in sorted(sub_dir.glob("*.jsonl")):
+    # Workflow agents write theirs a level down (subagents/workflows/<run>/agent-*.jsonl).
+    for f in sorted(sub_dir.rglob("*.jsonl")):
         for d in iter_records(f):
             if d.get("type") != "assistant":
                 continue
@@ -306,15 +331,16 @@ def file_signature(path: Path, sub_dir: Path) -> str:
     st = path.stat()
     parts = [f"{st.st_mtime_ns}:{st.st_size}"]
     if sub_dir.is_dir():
-        for f in sorted(sub_dir.glob("*.jsonl")):
+        for f in sorted(sub_dir.rglob("*.jsonl")):
             s = f.stat()
-            parts.append(f"{f.name}:{s.st_mtime_ns}:{s.st_size}")
+            parts.append(f"{f.relative_to(sub_dir).as_posix()}:{s.st_mtime_ns}:{s.st_size}")
     return "|".join(parts)
 
 
 def summarize_history(history: Path, opts: IndexOptions) -> dict:
     slash, by_day = Counter(), Counter()
     resume = corrections = memory_cues = images = total = 0
+    last_by_project: dict = {}
     if history.exists():
         for d in iter_records(history):
             project = d.get("project") if isinstance(d.get("project"), str) else ""
@@ -328,7 +354,9 @@ def summarize_history(history: Path, opts: IndexOptions) -> dict:
             m = SLASH_RE.match(text)
             if m:
                 slash[m.group(0)] += 1
-            resume += bool(RESUME_RE.match(text))
+            previous = last_by_project.get(project, "")
+            last_by_project[project] = text
+            resume += bool(RESUME_RE.match(text)) and not previous.startswith(PAUSE_COMMANDS)
             corrections += bool(CORRECTION_RE.search(text))
             memory_cues += bool(opts.memory_re.search(text))
             images += "[Image" in text

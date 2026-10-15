@@ -18,6 +18,7 @@ export const THRESHOLDS = {
   correctionShare: 0.02,
   longTurnMs: 30 * 60 * 1000,
   toolErrorsHigh: 100,
+  toolErrorShare: 0.05,
   cheapShareLow: 0.15,
 }
 
@@ -39,8 +40,11 @@ export const TRIGGERS = new Set(['auto', 'manual'])
 const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0)
 const basename = (p) => String(p || '?').split(/[\\/]/).filter(Boolean).pop() || '?'
 export const sessionLabel = (s) => `${basename(s.project)} ${String(s.end || '').slice(5, 10)}`
+// Sessions a person worked in: the indexer marks SDK runs and one-shot calls with no tools and
+// no title (desktop helpers, scripts) as automated, and they say nothing about how you work.
+export const workSessions = (digest) => (digest?.sessions || []).filter((s) => !s.automated)
 // Details are built from counts, model names, dates and project folder names only.
-const topSessions = (digest, score, render) => (digest?.sessions || [])
+const topSessions = (digest, score, render) => workSessions(digest)
   .map((s) => ({ s, v: score(s) })).filter((r) => r.v > 0)
   .sort((a, b) => b.v - a.v).slice(0, DETAIL_ROWS).map(render)
 
@@ -66,7 +70,8 @@ export function riskyCommands(cfg) {
 export function totals(digest) {
   const t = { tools: {}, agents: {}, risky: {}, permModes: {}, apiErrors: {}, usage: {}, editExts: {}, bashHeads: {}, compactions: [], turns: [], sessions: 0 }
   const add = (dst, src) => { for (const [k, v] of Object.entries(src || {})) dst[k] = (dst[k] || 0) + v }
-  for (const s of digest?.sessions || []) {
+  const compactions = new Map()
+  for (const s of workSessions(digest)) {
     t.sessions += 1
     add(t.tools, s.tools); add(t.agents, s.agents); add(t.risky, s.risky); add(t.bashHeads, s.bashHeads)
     add(t.permModes, s.permModes); add(t.apiErrors, s.apiErrors); add(t.editExts, s.editExts)
@@ -76,9 +81,11 @@ export function totals(digest) {
         for (const k of Object.keys(row)) row[k] += u[k] || 0
       }
     }
-    t.compactions.push(...(s.compactions || []))
+    // A transcript copied into another session file repeats its compactions; count each once.
+    for (const c of s.compactions || []) compactions.set(`${c.at}|${c.preTokens}`, c)
     if (s.turns?.count) t.turns.push(s.turns)
   }
+  t.compactions = [...compactions.values()]
   return t
 }
 
@@ -193,7 +200,7 @@ export const sessionCacheRead = (s) => sum([s.usageByModel, s.subUsage].flatMap(
 // A few very long sessions usually dominate cache reads; name them so they can be split.
 // Evidence uses project folder names and dates only, never transcript text.
 function heavySessionFindings(digest, { t, doc }) {
-  const rows = (digest?.sessions || []).map((s) => ({ s, read: sessionCacheRead(s) })).filter((r) => r.read > 0)
+  const rows = workSessions(digest).map((s) => ({ s, read: sessionCacheRead(s) })).filter((r) => r.read > 0)
   const total = sum(rows.map((r) => r.read))
   if (!total) return []
   const top = [...rows].sort((a, b) => b.read - a.read).slice(0, THRESHOLDS.heavySessions)
@@ -203,7 +210,7 @@ function heavySessionFindings(digest, { t, doc }) {
     title: t('heavyTitle', { n: top.length, pct: Math.round(share * 100) }),
     evidence: t('heavyEvidence', { top: top.map((r) => `${sessionLabel(r.s)} ${fmt(r.read)}`).join(' · '), total: fmt(total) }),
     action: t('heavyAction'),
-    doc: doc('prompt-caching'),
+    doc: doc('costs'),
     details: topSessions(digest, sessionCacheRead, (r) => t('heavyDetail', { label: sessionLabel(r.s), read: fmt(r.v), pct: pct(r.v, total) + '%', n: r.s.compactions?.length || 0 })),
   })]
 }
@@ -312,10 +319,15 @@ function recallFindings(tot, h, { t, doc, cfg }) {
   })]
 }
 
+// Phrases like "try again" turn up in any long history, so a count alone is not a pattern: it must
+// also be a share of prompts. The Tips that cite redo prompts use the same test.
+export const isRedoPattern = (h) => {
+  const n = h?.correctionPrompts || 0
+  return n >= THRESHOLDS.correctionHigh && n >= (h?.prompts || 0) * THRESHOLDS.correctionShare
+}
+
 function correctionFindings(h, { t, doc }) {
-  // Phrases like "try again" turn up in any long history, so require a share of prompts as well.
-  const n = h.correctionPrompts || 0
-  if (n < THRESHOLDS.correctionHigh || n < (h.prompts || 0) * THRESHOLDS.correctionShare) return []
+  if (!isRedoPattern(h)) return []
   return [finding({
     id: 'improve-corrections', severity: 'mid',
     title: t('correctionsTitle', { n: h.correctionPrompts }),
@@ -326,10 +338,13 @@ function correctionFindings(h, { t, doc }) {
   })]
 }
 
+// Errors are judged as a share of all tool calls: a heavy user meets 100 errors at a healthy rate.
 function toolErrorFindings(digest, { t, doc }) {
-  const denials = sum((digest?.sessions || []).map((s) => s.denials || 0))
-  const errors = sum((digest?.sessions || []).map((s) => s.toolErrors || 0))
-  if (errors < THRESHOLDS.toolErrorsHigh) return []
+  const sessions = workSessions(digest)
+  const denials = sum(sessions.map((s) => s.denials || 0))
+  const errors = sum(sessions.map((s) => s.toolErrors || 0))
+  const calls = sum(sessions.flatMap((s) => Object.values(s.tools || {})))
+  if (errors < THRESHOLDS.toolErrorsHigh || errors < calls * THRESHOLDS.toolErrorShare) return []
   return [finding({
     id: 'improve-tool-errors', severity: 'low',
     title: t('errorsTitle', { errors, denials }),
@@ -343,7 +358,7 @@ function toolErrorFindings(digest, { t, doc }) {
 export function buildStandup(digest, days, nowMs, gitLogs = {}, ctx = makeCtx()) {
   const since = nowMs - days * 24 * 3600 * 1000
   const byProject = new Map()
-  for (const s of digest?.sessions || []) {
+  for (const s of workSessions(digest)) {
     if (!s.end || Date.parse(s.end) < since) continue
     // Sessions with neither a title nor a typed prompt (e.g. `claude -p /cmd`) carry no work to report.
     if (!s.title && !s.firstPrompt) continue
