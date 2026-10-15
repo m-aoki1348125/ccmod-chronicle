@@ -1,13 +1,12 @@
-// Rich pane: charts above each tab's findings. Raster on the terminal, Svg elsewhere;
+// Rich pane: stats and charts above each tab's findings. Raster on the terminal, Svg elsewhere;
 // no mods API here. Values, labels and legends stay in text color; a colored mark carries
-// identity, and status always comes with an icon and a word.
+// identity, and status always comes with a dot and a word.
 
 import { THRESHOLDS, fmt } from './rules.js'
-import { section, tileRow } from './theme.js'
+import { GLYPH, heading, statRow } from './theme.js'
 import { SEQUENTIAL, STATUS, barCells, meterCells, rasterRow, sparkCells, stackedCells, statusOf, svgBar, svgMeter, svgSpark, svgStacked } from './charts.js'
 
-const ICON = { good: '🟢', warning: '🟡', critical: '🔴' }
-// The same states as theme colors, for tiles and frames that follow the person's theme.
+// The same states as theme colors, for the meter's dot and word, which follow the person's theme.
 const THEME = { good: 'success', warning: 'warning', critical: 'error' }
 const WORD = { good: 'statusGood', warning: 'statusWarning', critical: 'statusCritical' }
 const LABEL_COLS = 18
@@ -31,19 +30,20 @@ const indented = (model) => ({ ...model, cols: Math.max(1, model.cols - INDENT) 
 
 function block(el, title, children, subtitle) {
   const { Box } = el
-  return Box({ flexDirection: 'column', children: [section(el, title, subtitle), Box({ flexDirection: 'column', paddingLeft: INDENT, children })] })
+  return Box({ flexDirection: 'column', children: [heading(el, title, subtitle), Box({ flexDirection: 'column', paddingLeft: INDENT, children })] })
 }
 
 function meter(el, model, key, title, pct, kind) {
   const { Box, Text } = el
   const state = statusOf(pct, kind)
+  // The status reads as a colored dot and a word, never the color alone.
   const head = Box({
     flexDirection: 'row',
     columnGap: 1,
     children: [
       Text({ bold: true, children: [title] }),
-      Text({ color: STATUS[state], children: [ICON[state]] }),
-      Text({ bold: true, color: THEME[state], children: [`${Math.round(pct)}% ${model.t(WORD[state])}`] }),
+      Text({ color: THEME[state], children: [GLYPH.dot] }),
+      Text({ color: THEME[state], children: [`${Math.round(pct)}% ${model.t(WORD[state])}`] }),
     ],
   })
   const bar = mark(el, model, key, (cols) => meterCells(pct, cols, STATUS[state]), (w) => svgMeter(pct, w, STATUS[state]), `${title} ${Math.round(pct)}%`)
@@ -82,7 +82,7 @@ function mix(el, model) {
     children: segments.map((s) => Box({
       flexDirection: 'row',
       columnGap: 1,
-      children: [Text({ color: s.color, children: ['■'] }), Text({ children: [share(s)] })],
+      children: [Text({ color: s.color, children: [GLYPH.dot] }), Text({ children: [share(s)] })],
     })),
   })
   return block(el, model.t('chartMix'), [stacked, legend])
@@ -91,30 +91,28 @@ function mix(el, model) {
 function nowTiles(el, model) {
   const c = model.charts
   const u = model.aiUsage
-  const ctx = c.context ? { value: `${Math.round(c.context.pct)}%`, color: THEME[statusOf(c.context.pct)] } : { value: '—' }
-  return tileRow(el, [
-    { label: '🧠 ' + model.t('tileContext'), ...ctx },
-    { label: '📝 ' + model.t('tileUnreviewed'), value: c.unreviewed, ...(c.unreviewed >= THRESHOLDS.unreviewedEdits ? { color: 'warning' } : {}) },
-    { label: '🤖 ' + model.t('tileAiCalls'), value: u.calls, note: model.t('tileTokens', { in: fmt(u.in), out: fmt(u.out) }) },
+  return statRow(el, [
+    { label: model.t('tileUnreviewed'), value: c.unreviewed, ...(c.unreviewed >= THRESHOLDS.unreviewedEdits ? { color: 'warning' } : {}) },
+    { label: model.t('tileAiCalls'), value: u.calls, note: model.t('tileTokens', { in: fmt(u.in), out: fmt(u.out) }) },
   ])
 }
 
 function costTiles(el, model) {
   const s = model.charts.summary
-  return tileRow(el, [
-    { label: '💬 ' + model.t('tileSessions'), value: s.sessions },
-    { label: '📤 ' + model.t('tileOutput'), value: fmt(s.out), color: 'suggestion' },
-    { label: '🔁 ' + model.t('tileCacheRead'), value: fmt(s.cacheRead) },
-    { label: '📉 ' + model.t('tileCompactions'), value: s.compactions, ...(s.compactions ? { color: 'warning' } : {}) },
+  return statRow(el, [
+    { label: model.t('tileSessions'), value: s.sessions },
+    { label: model.t('tileOutput'), value: fmt(s.out) },
+    { label: model.t('tileCacheRead'), value: fmt(s.cacheRead) },
+    { label: model.t('tileCompactions'), value: s.compactions, ...(s.compactions ? { color: 'warning' } : {}) },
   ])
 }
 
 function standupTiles(el, model) {
   const rows = model.standup || []
-  return tileRow(el, [
-    { label: '💬 ' + model.t('tileSessions'), value: rows.reduce((n, r) => n + r.sessions.length, 0) },
-    { label: '📁 ' + model.t('tileProjects'), value: rows.length },
-    { label: '🔀 ' + model.t('tileCommits'), value: rows.reduce((n, r) => n + r.commits.length, 0) },
+  return statRow(el, [
+    { label: model.t('tileSessions'), value: rows.reduce((n, r) => n + r.sessions.length, 0) },
+    { label: model.t('tileProjects'), value: rows.length },
+    { label: model.t('tileCommits'), value: rows.reduce((n, r) => n + r.commits.length, 0) },
   ])
 }
 
@@ -134,7 +132,7 @@ function costCharts(el, model) {
     const window = Math.max(1_000_000, ...c.compactions.map((x) => x.value))
     out.push(block(el, model.t('chartCompact', { window: fmt(window) }), bars(el, indented(model), 'compact', c.compactions, window)))
   }
-  if (out.length === 1) return [out[0], el.Text({ dimColor: true, children: ['✨ ' + model.t('noChartData')] })]
+  if (out.length === 1) return [out[0], el.Text({ dimColor: true, children: [model.t('noChartData')] })]
   return out
 }
 

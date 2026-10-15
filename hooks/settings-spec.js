@@ -3,6 +3,7 @@
 
 import { EFFORT_OPTIONS, MODEL_OPTIONS, PANE_STYLES } from './ai-config.js'
 import { LANGUAGE_OPTIONS } from './i18n.js'
+import { BURN, BURN_EFFECTS } from './burn.js'
 
 const MAX_RETENTION_DAYS = 3650
 const MAX_TEXT = 2000
@@ -23,6 +24,8 @@ export const SETTINGS_SPEC = Object.freeze([
   { key: 'extraRiskyCommands', kind: 'list', default: '' },
   { key: 'excludeProjects', kind: 'list', default: '' },
   { key: 'retentionDays', kind: 'number', default: 0, min: 0, max: MAX_RETENTION_DAYS },
+  { key: 'burnAlert', kind: 'number', default: BURN.defaultPerMin, min: 0, max: BURN.maxPerMin },
+  { key: 'burnEffect', kind: 'select', options: BURN_EFFECTS, default: 'rainbow' },
 ])
 
 export const SETTING_KEYS = Object.freeze(SETTINGS_SPEC.map((s) => s.key))

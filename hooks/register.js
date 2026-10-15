@@ -5,11 +5,12 @@
 import { buildNow, buildCost, buildImprove, buildStandup, rankFindings, isReviewer, riskyCommands, trackToolCall } from './rules.js'
 import { makeCtx, resolveLang, ruleConfig } from './i18n.js'
 import { buildTips } from './catalog.js'
-import { renderPane, TABS } from './view.js'
+import { renderBand, renderPane, TABS } from './view.js'
 import { copyText, isShareableLine, shareableFinding, stripLinks } from './privacy.js'
 import { atom, read, update } from 'claude-code'
 import { currentValues, listEntries, parseSetting } from './settings-spec.js'
 import { digestCharts, liveCharts, localDay } from './charts.js'
+import { BURN, BURN_EFFECTS, EMPTY_BURN, endTurn, isBurning, restoreLast, startTurn } from './burn.js'
 import { addUsage, CREDIT_MODELS, LIVE_FIELDS, explainCacheKey, isCacheEntry, maxTokensFor, mergeSetting, tokensOf, normalizeSettings, pruneCache, settingsField, systemPrompt } from './ai-config.js'
 
 const PANE = 'ccmod-chronicle'
@@ -21,8 +22,9 @@ const ERROR_CHARS = 200
 // Repo-local config could make `git log` launch programs (gpg, fsmonitor); turn those off.
 const GIT_SAFE = ['git', '-c', 'log.showSignature=false', '-c', 'core.fsmonitor=false', '-c', 'diff.external=']
 const AI_TIMEOUT_MS = 60000
-// Pane body width when the surface does not say.
+// Pane body width when the surface does not say, and the widest the view will draw for.
 const DEFAULT_COLS = 60
+const MAX_COLS = 512
 const STARTUP_DELAY_MS = 1500
 // Mods need 2.1.287; userConfig `options` pickers need 2.1.271. Tested with 2.1.288.
 const MIN_VERSION = '2.1.287'
@@ -35,7 +37,7 @@ const ABSOLUTE_PATH = /^([A-Za-z]:[\\/]|\/)/
 const TAB_IDS = new Set(TABS.map((t) => t.id))
 // Live warnings describe this session only; dismissing them must not persist.
 const isSessionOnly = (id) => id.startsWith('now-')
-const EMPTY_LIVE = Object.freeze({ context: null, rateLimits: [], unreviewed: [], risky: {} })
+const EMPTY_LIVE = Object.freeze({ context: null, rateLimits: [], unreviewed: [], risky: {}, burn: EMPTY_BURN })
 
 let excludes = []
 // Rule settings and the pane's language; ctx is rebuilt when the language is known.
@@ -48,6 +50,8 @@ let chartMemo = null
 // The options this activation was loaded with, shown and edited in the Settings tab.
 let rawOptions = currentValues()
 let retentionDays = 0
+// The burn alert's threshold (tokens per minute, 0 = off) and how it is drawn.
+let burnCfg = { threshold: BURN.defaultPerMin, effect: 'rainbow' }
 let digest = null
 let findings = null
 let tab = 'now'
@@ -73,7 +77,7 @@ let aiUsage = { calls: 0, in: 0, out: 0 }
 let inflight = new Set()
 let saveChain = Promise.resolve()
 // Survives the reload an options change triggers (see types/index.d.ts); reset by /clear.
-const VIEW = atom({ plugin: 'ccmod-chronicle', key: 'view' }, { tab: 'now', detailId: null, days: 1, aiUsage: { calls: 0, in: 0, out: 0 }, nowExplain: {}, live: { unreviewed: [], risky: {} }, sessionDismissed: [] })
+const VIEW = atom({ plugin: 'ccmod-chronicle', key: 'view' }, { tab: 'now', detailId: null, days: 1, aiUsage: { calls: 0, in: 0, out: 0 }, nowExplain: {}, live: { unreviewed: [], risky: {} }, sessionDismissed: [], burn: { last: null, hidden: false } })
 // A restored digest-finding detail waits for the re-index before it is reopened (or dropped).
 let pendingDetailId = null
 let persistChain = Promise.resolve()
@@ -92,6 +96,13 @@ function loadOptions(options = {}) {
   retentionDays = clampDays(options.retentionDays)
   // Comma or newline only: a ':' would split Windows paths such as C:\\Clients.
   excludes = listEntries(options.excludeProjects)
+  burnCfg = burnConfig(options)
+}
+
+function burnConfig(options) {
+  const n = Math.floor(Number(options.burnAlert ?? BURN.defaultPerMin))
+  const threshold = Number.isFinite(n) && n >= 0 ? Math.min(n, BURN.maxPerMin) : BURN.defaultPerMin
+  return { threshold, effect: BURN_EFFECTS.includes(options.burnEffect) ? options.burnEffect : 'rainbow' }
 }
 
 export function register(on, options) {
@@ -124,6 +135,21 @@ export function register(on, options) {
     return next(e)
   }).catch(passThrough)
 
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) live = { ...live, burn: startTurn(live.burn, e.turnId, await $.clock.now()) }
+    return next(e)
+  }).catch(passThrough)
+
+  on('turn.complete', async ($, e, next) => {
+    onTurnComplete($, e, await $.clock.now())
+    return next(e)
+  }).catch(passThrough)
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props?.hasSurvey || !isBurning(live.burn) || live.burn.hidden || !burnCfg.threshold) return next(e)
+    return renderBand($.ui.resolve(e), { t: ctx.t, last: live.burn.last, effect: burnCfg.effect }, handlersFor($))
+  }).catch(passThrough)
+
   on('agent.spawn', async ($, e, next) => {
     if (isReviewer(e.subagentType, ruleCfg.reviewers) && live.unreviewed.length) {
       live = { ...live, unreviewed: [] }
@@ -151,6 +177,18 @@ function onToolCall($, e) {
   const before = live
   live = trackToolCall(live, e, risky)
   if (live === before) return
+  $.ui.invalidate('ui.render')
+  persistView($)
+}
+
+function onTurnComplete($, e, now) {
+  const before = live.burn
+  const burn = endTurn(before, e, burnCfg.threshold, now)
+  if (burn === before) return
+  live = { ...live, burn }
+  if (burn.last === before.last) return
+  // A new heavy turn is news again, even where the last alert was dismissed on Now.
+  if (burn.last.level) sessionDismissed = sessionDismissed.filter((id) => id !== 'now-burn')
   $.ui.invalidate('ui.render')
   persistView($)
 }
@@ -191,6 +229,7 @@ async function startSession($) {
   dismissed = await loadDismissed($)
   await checkVersion($)
   const isReload = await restoreView($)
+  $.ui.invalidate('ui.render')
   // After a reload (e.g. a model change) the startup toast would only repeat itself.
   $.clock.after(STARTUP_DELAY_MS, () => refresh($, !isReload))
   await $.command.register({
@@ -240,6 +279,9 @@ async function restoreView($) {
   explain = { ...explain, ...(v.nowExplain || {}) }
   sessionDismissed = Array.isArray(v.sessionDismissed) ? v.sessionDismissed : []
   if (v.live) live = { ...live, unreviewed: v.live.unreviewed || [], risky: v.live.risky || {} }
+  // Judged again: the reload may have come from a burnAlert change.
+  const last = restoreLast(v.burn?.last, burnCfg.threshold)
+  if (last) live = { ...live, burn: { ...EMPTY_BURN, last, hidden: Boolean(v.burn.hidden) } }
   restoreDetail(v.detailId)
   return Boolean(v.detailId || v.aiUsage?.calls || v.tab !== 'now')
 }
@@ -261,7 +303,7 @@ function viewSnapshot() {
   const nowExplain = Object.fromEntries(Object.entries(explain)
     .filter(([id, v]) => isSessionOnly(id) && v?.text)
     .map(([id, v]) => [id, { text: v.text, model: v.model, ...(v.tokens ? { tokens: v.tokens } : {}) }]))
-  return { tab, detailId: detailId || pendingDetailId, days, aiUsage, nowExplain, live: { unreviewed: live.unreviewed, risky: live.risky }, sessionDismissed }
+  return { tab, detailId: detailId || pendingDetailId, days, aiUsage, nowExplain, live: { unreviewed: live.unreviewed, risky: live.risky }, sessionDismissed, burn: { last: live.burn.last, hidden: live.burn.hidden } }
 }
 
 // Writes are chained and each one snapshots the view when it runs, so an older snapshot can
@@ -324,16 +366,18 @@ function viewModel(nowMs, view = {}) {
   const hidden = [...dismissed, ...sessionDismissed]
   const ranked = Object.fromEntries(Object.entries(lists).map(([k, v]) => [k, rankFindings(v, hidden)]))
   const detail = resolveDetail(lists)
-  return { t: ctx.t, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [], ...richView(view, nowMs) }
+  const raw = Math.floor(Number(view.cols))
+  const cols = Number.isFinite(raw) && raw > 0 ? Math.min(MAX_COLS, raw) : DEFAULT_COLS
+  return { t: ctx.t, nowMs, tab, days, status, versionWarning, config: rawOptions, ai, settings, aiUsage, detail, explain: detail ? explain[detail.id] : null, lists: ranked, standup: digest ? buildStandup(digest, days, nowMs, gitLogs, ctx) : [], surface: view.surface, cols, burnEffect: burnCfg.effect, ...richView(nowMs) }
 }
 
-// Charts are computed only for the rich style, sized to the pane's body.
+// Charts are computed only for the rich style; the view sizes them to the pane's body.
 // The digest's charts are kept until the digest or the local date changes; meters are live.
-function richView(view, nowMs) {
+function richView(nowMs) {
   if (settings.paneStyle !== 'rich') return {}
   const day = localDay(nowMs)
   if (!chartMemo || chartMemo.digest !== digest || chartMemo.day !== day) chartMemo = { digest, day, charts: digestCharts(digest, nowMs) }
-  return { surface: view.surface, cols: Math.max(1, view.cols || DEFAULT_COLS), charts: { ...chartMemo.charts, ...liveCharts(live) } }
+  return { charts: { ...chartMemo.charts, ...liveCharts(live) } }
 }
 
 function resolveDetail(lists) {
@@ -384,7 +428,22 @@ function handlersFor($) {
     onCopy: (text, press) => copyPrompt($, text, press),
     onApply: (f) => applyViaClaude($, f),
     onAi: (id) => summarize($, id),
+    onBurnDetail: () => openBurnDetail($),
+    onBurnHide: () => {
+      live = { ...live, burn: { ...live.burn, hidden: true } }
+      $.ui.invalidate('ui.render')
+      persistView($)
+    },
   }
+}
+
+// The band's Details: the pane opens on Now with the burn finding's detail.
+async function openBurnDetail($) {
+  const f = buildNow(live, ctx).find((x) => x.id === 'now-burn')
+  if (!f) return
+  tab = 'now'
+  openDetail($, f)
+  await $.ui.open({ id: PANE, title: 'Chronicle', focus: true, closeOnEscape: true })
 }
 
 async function refresh($, isStartup) {

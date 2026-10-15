@@ -109,6 +109,7 @@ export function buildNow(live, ctx = makeCtx()) {
       doc: doc('context-window'),
     }))
   }
+  out.push(...burnFindings(live, ctx))
   for (const rl of live?.rateLimits || []) {
     if (rl.percentUsed < THRESHOLDS.rateLimitWarnPct) continue
     out.push(finding({
@@ -130,6 +131,20 @@ export function buildNow(live, ctx = makeCtx()) {
     }))
   }
   return out
+}
+
+// The last main-loop turn spent tokens faster than the burnAlert threshold (burn.js).
+function burnFindings(live, { t, doc }) {
+  const last = live?.burn?.last
+  if (!last?.level) return []
+  return [finding({
+    id: 'now-burn', severity: last.level === 'blaze' ? 'high' : 'mid', rainbow: true,
+    title: t(last.level === 'blaze' ? 'nowBurnBlazeTitle' : 'nowBurnTitle', { rate: fmt(last.perMin) }),
+    evidence: t('nowBurnEvidence', { tokens: fmt(last.tokens), min: (last.ms / 60_000).toFixed(1), limit: fmt(last.threshold) }),
+    action: t('nowBurnAction'),
+    prompt: t('nowBurnPrompt'),
+    doc: doc('costs'),
+  })]
 }
 
 function unreviewedFindings(live, { t, cfg }) {

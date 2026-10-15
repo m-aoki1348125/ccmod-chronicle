@@ -13,6 +13,8 @@ declare module 'claude-code' {
         // Live signals buildNow needs: code files edited since the last review, risky command counts.
         live: { unreviewed: string[]; risky: Record<string, number> }
         sessionDismissed: string[]
+        // The last main-loop turn's token pace (hooks/burn.js) and whether the band was hidden.
+        burn: { last: { tokens: number; ms: number; perMin: number; level: 'hot' | 'blaze' | null; threshold: number } | null; hidden: boolean }
       }
     }
   }

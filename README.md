@@ -7,7 +7,7 @@ analyzing how you use Claude Code, in the spirit of GitHub Copilot CLI's `/chron
 
 | Tab | What it shows |
 |---|---|
-| Now | Live warnings for this session: context fill, plan-limit windows, code changed without review, commands with outside effects |
+| Now | Live warnings for this session: context fill, token burn pace, plan-limit windows, code changed without review, commands with outside effects |
 | Cost | Late compactions, the few sessions that dominate cache reads, model mix, credit errors, very long turns |
 | Tips | Up to 5 Claude Code features you underuse, with the evidence and a docs link |
 | Standup | Work per project over the last 1 / 3 / 7 days: titles, recaps, git commits, files |
@@ -43,21 +43,21 @@ Before installing any mod, you can list what it does without running it:
 
 `/chronicle [now|cost|tips|standup|improve|settings|refresh|purge]`
 
-Keys: `1`–`6` tabs, `r` re-index, `v` simple / rich view, `a` AI summary, Esc closes. In a detail view: `b` back,
+Keys: `1`–`6` tabs, `r` re-index, `v` show / hide charts, `a` AI summary, Esc closes. In a detail view: `b` back,
 `c` copy prompt, `g` generate / regenerate the explanation.
 
 `/chronicle purge` deletes everything this mod stored (see [PRIVACY.md](PRIVACY.md)).
 
-Two views (`paneStyle`): **simple**, the light text view, is the default. **rich** adds charts
-above the findings (context and plan-limit meters on Now; output tokens by model, cache reads by
-session and tokens at compaction on Cost; prompts per day on Standup) and draws each finding in a
-bordered card. Charts are cell graphics in the terminal and SVG with hover values in the desktop
-app; other surfaces keep the simple view's text. Every chart has its numbers written beside it.
+Two views (`paneStyle`): **simple**, the list alone, is the default. **rich** adds a row of
+figures and charts above it (context and plan-limit meters on Now; output tokens by model, cache
+reads by session and tokens at compaction on Cost; prompts per day on Standup). Charts are cell
+graphics in the terminal and SVG with hover values in the desktop app; other surfaces keep the
+simple view. Every chart has its numbers written beside it.
 
-Both views mark severity with 🔴 / 🔶 / 🔷 (shape and color) and a colored title, the evidence with 📊 and the next step
-with 👉. The rich view adds a colored HIGH / MID / LOW chip, frames colored by severity, stat tiles
-(Now, Cost, Standup) and a Findings header. Colors are Claude Code theme colors, so they follow your
-light or dark theme, and none carries meaning without an icon or a word beside it.
+The pane is drawn in the text font only: no emoji, so it looks the same in every terminal. A
+finding is a colored dot, its title, then the severity word (HIGH / MID / LOW) with the evidence,
+the next step after `→`, and its actions as text. Colors are Claude Code theme colors, so they
+follow your light or dark theme, and none carries meaning without a word beside it.
 
 ## Settings
 
@@ -68,7 +68,7 @@ Changing one reloads the mod; the pane comes back where it was.
 | Option | Default | What it does |
 |---|---|---|
 | `language` | `auto` | `en`, `ja`, or `auto` (follows Claude Code's `language` setting) |
-| `paneStyle` | `simple` | `simple` (text) or `rich` (charts and cards); `v` toggles it |
+| `paneStyle` | `simple` | `simple` (the list alone) or `rich` (figures and charts above it); `v` toggles it |
 | `aiModel` | `haiku` | Model for explanations and AI summaries: `haiku`, `sonnet`, `opus`, `fable`. `fable` uses usage credits and only runs when you press `g`. Also switchable from the detail view |
 | `aiEffort` | `low` | `low`, `medium`, `high`. The reply cap grows with it (700 / 1200 / 2000 tokens) |
 | `autoExplain` | `true` | Generate the explanation as soon as Details opens. Off: press `g` |
@@ -79,6 +79,8 @@ Changing one reloads the mod; the pane comes back where it was.
 | `extraRiskyCommands` | empty | Extra command substrings to flag (e.g. `terraform apply`) |
 | `retentionDays` | `0` | Once Claude Code has deleted a session's transcript, its summary is kept until this many days after the session ended. `0` uses Claude Code's `cleanupPeriodDays` (30 by default), so summaries go when their transcripts do |
 | `excludeProjects` | empty | Comma-separated project path prefixes to leave out entirely (e.g. client work) |
+| `burnAlert` | `100000` | When a turn spends tokens faster than this (tokens/min; subagents included, cache reads count a tenth), the band above the prompt and the Now tab show it in rainbow letters like `ultrathink`. Twice it reads "very high". `0` turns it off |
+| `burnEffect` | `rainbow` | `rainbow` (animated), `still` (rainbow without motion) or `plain` (the warning color only) |
 
 ## Token use
 

@@ -653,7 +653,7 @@ test('an installed copy and a --plugin-dir copy of our name are refused, not gue
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`the rich style draws charts and framed cards on ${surface}`, { options: { paneStyle: 'rich' } }, async ($, on) => {
+  test(`the rich style draws charts and keyed cards on ${surface}`, { options: { paneStyle: 'rich' } }, async ($, on) => {
     const { clock } = stubEngine(on, { claudeLanguage: 'en', surfaces: [surface] })
     await start($, clock)
     await $.command.run({ command: 'chronicle', args: 'cost' })
@@ -743,25 +743,75 @@ test('the Settings groups hold every option exactly once', async () => {
   expect(new Set(keys).size).toBe(keys.length)
 })
 
-test('the rich Cost tab shows stat tiles and severity chips', { options: { paneStyle: 'rich' } }, async ($, on) => {
+test('the rich Cost tab shows stats and a Findings heading', { options: { paneStyle: 'rich' } }, async ($, on) => {
   const { clock } = stubEngine(on, { claudeLanguage: 'en' })
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'cost' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Output tokens/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^ HIGH $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Findings$/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('the simple style keeps icons but draws no frames or tiles', async ($, on) => {
+test('a finding reads as a colored dot, its title and the severity word; no emoji anywhere', async ($, on) => {
   const { clock } = stubEngine(on, { claudeLanguage: 'en' })
   await start($, clock)
   await $.command.run({ command: 'chronicle', args: 'cost' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^🔴$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^ HIGH $/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe('error')
+  expect(await ui.find({ type: 'Text', text: /^HIGH · / })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Output tokens/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+// Emoji presentation (pictographs, symbols that emoji fonts take over) would depend on the
+// terminal's emoji font; the pane draws text glyphs only, in every tab and in a detail view.
+const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2600}-\u{26FF}\u{2700}-\u{2712}\u{2714}-\u{27BF}\u{FE0F}]/u
+test('no tab, button, link or detail view draws an emoji', { ...WITH_REVIEWERS, options: { ...WITH_REVIEWERS.options, paneStyle: 'rich' } }, async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  on('session.measure', () => ({ changed: [] }))
+  await start($, clock)
+  await $.session.measure({ context: { tokens: 850000, window: 1000000, percent: 85 }, rateLimits: [{ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-10-03T13:10:00Z' }] })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const check = async () => {
+    for (const type of ['Text', 'Button', 'Link']) expect(await ui.find({ type, text: EMOJI })).toBeUndefined()
+    for (const b of await ui.findAll({ type: 'Button' })) expect(String(b.props.label ?? '')).not.toMatch(EMOJI)
+    for (const l of await ui.findAll({ type: 'Link' })) expect(String(l.props.label ?? '')).not.toMatch(EMOJI)
+  }
+  for (const tab of ['now', 'cost', 'tips', 'standup', 'improve', 'settings']) {
+    await ui.press({ key: 'tab-' + tab })
+    await check()
+  }
+  await ui.press({ key: 'tab-cost' })
+  await ui.press({ key: 'ask-cost-late-compact' })
+  await check()
+  await ui.unmount()
+})
+
+test('the desktop surface separates sections without a cell-drawn rule', async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en', surfaces: ['desktop'] })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the terminal rule spans the pane body', async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  await $.command.run({ command: 'chronicle', args: 'cost' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 24 } })
+  expect((await ui.find({ type: 'Text', text: /^─+$/ }))?.text).toHaveLength(24)
+  await ui.unmount()
+})
+
+test('the index status is written as a relative time', async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  await start($, clock)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Indexed (just now|.* ago) · \d+ sessions$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -781,16 +831,142 @@ test('rich tiles count Standup work and warn on unreviewed edits', { ...WITH_REV
 })
 
 for (const style of ['simple', 'rich'] as const) {
-  test(`the ${style} detail view ${style === 'rich' ? 'frames the finding with a chip' : 'keeps it unframed'}`, { options: { paneStyle: style } }, async ($, on) => {
+  test(`the ${style} detail view draws the finding the same way as the list`, { options: { paneStyle: style } }, async ($, on) => {
     const { clock } = stubEngine(on, { claudeLanguage: 'en' })
     await start($, clock)
     await $.command.run({ command: 'chronicle', args: 'cost' })
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     await ui.press({ key: 'ask-cost-late-compact' })
     expect(await ui.find({ key: 'back' })).toBeDefined()
-    const chip = await ui.find({ type: 'Text', text: /^ HIGH $/ })
-    if (style === 'rich') expect(chip).toBeDefined()
-    else expect(chip).toBeUndefined()
+    expect((await ui.find({ type: 'Text', text: /^●$/ }))?.props.color).toBe('error')
+    expect(await ui.find({ type: 'Text', text: /^HIGH · / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Breakdown$/ })).toBeDefined()
     await ui.unmount()
   })
 }
+
+
+// The band above the prompt, as the engine raises it with no survey showing.
+const BAND = {
+  plugin: 'ccmod-chronicle',
+  component: 'AbovePrompt',
+  viewport: { columns: 120, rows: 40 },
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 115, scroll: { offset: 0, bodyRows: 9 }, view: {} },
+} as const
+
+// One main-loop turn of `ms` that spent `out` output tokens.
+async function heavyTurn($: any, on: any, id: string, out: number, ms = 60_000) {
+  await $.turn.start({ text: 'go', turnId: id })
+  await $.turn.complete({ answer: '', durationMs: ms, isAborted: false, turnId: id, reason: 'answer', usage: { input_tokens: 0, output_tokens: out, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'claude-opus-5-5' } })
+}
+
+// The engine's own band beneath the plugin, drawn when the plugin passes.
+function stubTurns(on: any) {
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: ['engine band'] }))
+}
+
+// The letters a drawn tree shows, joined (rainbow text is one Text per letter).
+const lettersOf = (node: any): string => (typeof node === 'string' ? node : (node?.children || []).map(lettersOf).join(''))
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a heavy turn lights the band in animated rainbow letters on ${surface}`, async ($, on) => {
+    const { clock } = stubEngine(on)
+    stubTurns(on)
+    await start($, clock)
+    await heavyTurn($, on, 't1', 150_000)
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ type: 'Client', key: 'burn-band' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /150k tokens\/分 · 基準 100k\/分/ })).toBeDefined()
+    const before = JSON.stringify(await ui.drawn({ in: 'burn-band' }))
+    expect(lettersOf(await ui.drawn({ in: 'burn-band' }))).toBe('✻ トークンの消費ペースが高めです')
+    await ui.advance(120)
+    expect(JSON.stringify(await ui.drawn({ in: 'burn-band' }))).not.toBe(before)
+    await ui.unmount()
+  })
+}
+
+test('a light turn leaves the band to the engine, and burnAlert 0 turns it off', { options: { burnAlert: 0 } }, async ($, on) => {
+  const { clock } = stubEngine(on)
+  stubTurns(on)
+  await start($, clock)
+  await heavyTurn($, on, 't1', 900_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ key: 'burn-band' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('very high burn reads as high severity on Now, and Hide clears the band until the next heavy turn', async ($, on) => {
+  const { clock } = stubEngine(on)
+  stubTurns(on)
+  await start($, clock)
+  await heavyTurn($, on, 't1', 300_000)
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ type: 'Client', key: 'rainbow-now-burn' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^高 · 直前のターンで 300k tokens を 1\.0 分で消費/ })).toBeDefined()
+  await pane.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'burn-hide' })
+  expect(await band.find({ key: 'burn-band' })).toBeUndefined()
+  await heavyTurn($, on, 't2', 150_000)
+  expect(await band.find({ key: 'burn-band' })).toBeDefined()
+  await band.unmount()
+})
+
+test('a burn alert dismissed on Now comes back with the next heavy turn', async ($, on) => {
+  const { clock } = stubEngine(on)
+  stubTurns(on)
+  await start($, clock)
+  await heavyTurn($, on, 't1', 150_000)
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await pane.press({ key: 'hide-now-burn' })
+  expect(await pane.find({ key: 'rainbow-now-burn' })).toBeUndefined()
+  await heavyTurn($, on, 't2', 150_000)
+  expect(await pane.find({ key: 'rainbow-now-burn' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('the band\'s Details opens the pane on the burn finding', async ($, on) => {
+  const { clock } = stubEngine(on, { claudeLanguage: 'en' })
+  stubTurns(on)
+  await start($, clock)
+  await heavyTurn($, on, 't1', 150_000)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /150k tokens\/min/ })).toBeDefined()
+  await band.press({ key: 'burn-detail' })
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ key: 'back' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /The last turn spent 150k tokens in 1\.0 min/ })).toBeDefined()
+  await pane.unmount()
+})
+
+for (const [effect, hasClient] of [['still', false], ['plain', false]] as const) {
+  test(`burnEffect ${effect} draws the band without motion`, { options: { burnEffect: effect } }, async ($, on) => {
+    const { clock } = stubEngine(on)
+    stubTurns(on)
+    await start($, clock)
+    await heavyTurn($, on, 't1', 150_000)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(Boolean(await ui.find({ type: 'Client' }))).toBe(hasClient)
+    expect(await ui.find({ type: 'Text', text: /トークンの消費ペースが高めです/ })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('/clear drops the burn alert', async ($, on) => {
+  const { clock } = stubEngine(on)
+  stubTurns(on)
+  on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId }))
+  await start($, clock)
+  await heavyTurn($, on, 't1', 150_000)
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: undefined })
+  await $.command.run({ command: 'chronicle', args: 'now' })
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pane.find({ key: 'rainbow-now-burn' })).toBeUndefined()
+  await pane.unmount()
+})

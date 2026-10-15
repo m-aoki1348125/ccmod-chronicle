@@ -43,7 +43,7 @@ export function mergeSetting(settings, field, value) {
 }
 
 // Every userConfig field, as the Settings tab can change them (tests keep this equal to SETTING_KEYS).
-export const FIELDS = ['language', 'paneStyle', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands', 'excludeProjects', 'retentionDays']
+export const FIELDS = ['language', 'paneStyle', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations', 'reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands', 'excludeProjects', 'retentionDays', 'burnAlert', 'burnEffect']
 // The fields applied in place; the others take effect when the options change reloads the mod.
 export const LIVE_FIELDS = new Set(['language', 'paneStyle', 'aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'])
 

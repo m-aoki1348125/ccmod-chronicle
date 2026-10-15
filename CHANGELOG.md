@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0
+
+- Burn alert: when a turn spends tokens faster than `burnAlert` (100k tokens/min by default;
+  cache reads count a tenth, subagents' tokens are included), a band above the prompt says so in
+  animated rainbow letters, as `ultrathink` is highlighted, with Details and Hide. The Now tab
+  lists it too (high severity at twice the threshold). `burnEffect` picks `rainbow`, `still` or
+  `plain`; `burnAlert: 0` turns the alert off.
+
+## 0.7.0
+
+- A quieter pane, drawn in the text font only: no emoji, no frames, no chips. Tabs read as a
+  row with the open one bold and a count after each, the index status is a relative time
+  ("5 min ago") with the two controls on the right, and a hairline separates the header from the
+  list. A finding is a colored dot and its title, the severity word with the evidence, the next
+  step after `→`, and text buttons (accent for Details and Apply, dim for Dismiss). The rich view
+  keeps its charts and shows its figures as a row of labelled numbers; `v` now reads "Show / Hide
+  charts". Standup rows use `recap` / `commits` / `files` label columns; the Settings tab has
+  plain on / off pickers.
+
 ## 0.6.0
 
 - Easier to read at a glance: tab icons, 🔴 / 🔶 / 🔷 severity with colored titles, 📊 evidence and

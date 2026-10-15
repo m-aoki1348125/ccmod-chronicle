@@ -1,12 +1,13 @@
 // Pane rendering. Receives the element functions from $.ui.resolve(e), plain callbacks from
 // register.js and the strings function `model.t`, so this file never touches the mods API.
-// Both styles share the icons and severity colors in theme.js; the rich style adds frames,
-// tiles and charts (rich-view.js).
+// One visual language for both pane styles: `rich` adds stats and charts (rich-view.js) above
+// the same list; nothing else changes between them.
 
 import { CREDIT_MODELS, EFFORT_OPTIONS, MODEL_OPTIONS } from './ai-config.js'
 import { SETTINGS_SPEC } from './settings-spec.js'
 import { richCharts } from './rich-view.js'
-import { ACCENT, ICON, STATUS_ICON, TAB_ICON, chip, iconLine, section, severityOf } from './theme.js'
+import { fmt } from './rules.js'
+import { GLYPH, glyphLine, heading, labelled, meta, rainbowText, rule, severityOf, textButton } from './theme.js'
 
 export const TABS = Object.freeze([
   { id: 'now', label: 'Now', hotkey: '1' },
@@ -19,10 +20,11 @@ export const TABS = Object.freeze([
 
 // The Settings tab's groups, in order; together they hold every option once (tests check).
 export const SETTING_GROUPS = Object.freeze([
-  { id: 'display', icon: '🌐', keys: ['language', 'paneStyle'] },
-  { id: 'ai', icon: '🤖', keys: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'] },
-  { id: 'rules', icon: '🔍', keys: ['reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands'] },
-  { id: 'data', icon: '📦', keys: ['excludeProjects', 'retentionDays'] },
+  { id: 'display', keys: ['language', 'paneStyle'] },
+  { id: 'ai', keys: ['aiModel', 'aiEffort', 'autoExplain', 'cacheExplanations'] },
+  { id: 'burn', keys: ['burnAlert', 'burnEffect'] },
+  { id: 'rules', keys: ['reviewerAgents', 'memoryTools', 'memoryCueWords', 'extraRiskyCommands'] },
+  { id: 'data', keys: ['excludeProjects', 'retentionDays'] },
 ])
 
 const AI_TABS = new Set(['cost', 'tips', 'standup', 'improve'])
@@ -30,9 +32,18 @@ const AI_TABS = new Set(['cost', 'tips', 'standup', 'improve'])
 // Bidi overrides and line/paragraph separators can disguise text, so they go too.
 const CONTROL_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g
 const DETAIL_MAX = 12
+const INDENT = 2
+const LABEL_COLS = 8
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
 const clean = (text) => String(text ?? '').replace(CONTROL_CHARS, '')
 const folder = (p) => String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/')
 const isRich = (model) => model.settings.paneStyle === 'rich'
+const indent = (el, children) => el.Box({ flexDirection: 'column', paddingLeft: INDENT, children })
+// A hairline is cell graphics: only the terminal draws it true to the pane's width; elsewhere the
+// row gap alone separates the sections.
+const hairline = (el, model) => (model.surface === 'terminal' ? rule(el, model.cols) : null)
 
 export function renderPane(el, model, h) {
   const { Box } = el
@@ -40,7 +51,23 @@ export function renderPane(el, model, h) {
   return Box({
     flexDirection: 'column',
     rowGap: 1,
-    children: [tabRow(el, model, h), statusLine(el, model, h), ...charts(el, model), ...body(el, model, h), aiBlock(el, model, h)].filter(Boolean),
+    children: [header(el, model, h), ...charts(el, model), ...body(el, model, h), aiBlock(el, model, h)].filter(Boolean),
+  })
+}
+
+// The band above the prompt: the burn pace in rainbow letters, its figures, and two actions.
+export function renderBand(el, { t, last, effect }, h) {
+  const { Box } = el
+  return Box({
+    flexDirection: 'row',
+    columnGap: 2,
+    flexWrap: 'wrap',
+    children: [
+      rainbowText(el, { key: 'burn-band', text: t(last.level === 'blaze' ? 'bandBlaze' : 'bandHot'), effect }),
+      meta(el, t('bandEvidence', { rate: fmt(last.perMin), limit: fmt(last.threshold) }), { wrap: 'truncate-end' }),
+      textButton(el, { key: 'burn-detail', label: t('bandDetail'), onPress: () => h.onBurnDetail() }),
+      textButton(el, { key: 'burn-hide', label: t('bandHide'), tone: 'dim', onPress: () => h.onBurnHide() }),
+    ],
   })
 }
 
@@ -48,51 +75,81 @@ function charts(el, model) {
   return isRich(model) ? richCharts(el, { ...model, clean }) : []
 }
 
-// Tabs with an icon each; the open one is marked ▸ and drawn at full strength.
+// Tabs, the index status with its two controls, and a rule under them.
+function header(el, model, h) {
+  const { Box } = el
+  return Box({ flexDirection: 'column', children: [tabRow(el, model, h), statusLine(el, model, h), hairline(el, model)].filter(Boolean) })
+}
+
+// The open tab reads bold at full strength; the others dim. A count follows a tab that has items.
 function tabRow(el, model, h) {
-  const { Box, Button } = el
+  const { Box, Button, Text } = el
   return Box({
     flexDirection: 'row',
-    columnGap: 1,
+    columnGap: 2,
     flexWrap: 'wrap',
-    children: TABS.map((tab) => Button({
-      key: 'tab-' + tab.id,
-      label: `${model.tab === tab.id ? '▸' : ''}${TAB_ICON[tab.id]} ${tab.label}${countBadge(model, tab.id)}`,
-      hotkey: tab.hotkey,
-      plain: true,
-      ...(model.tab === tab.id ? {} : { dimColor: true }),
-      onPress: () => h.onTab(tab.id),
-    })),
+    children: TABS.map((tab) => {
+      const active = model.tab === tab.id
+      const n = model.lists[tab.id]?.length
+      return Button({
+        key: 'tab-' + tab.id,
+        hotkey: tab.hotkey,
+        plain: true,
+        ...(active ? {} : { dimColor: true }),
+        onPress: () => h.onTab(tab.id),
+        children: [Text({ bold: active, children: [tab.label] }), ...(n ? [Text({ dimColor: true, children: [` ${n}`] })] : [])],
+      })
+    }),
   })
 }
 
-function countBadge(model, tab) {
-  const n = model.lists[tab]?.length
-  return n ? ` (${n})` : ''
+// "5 min ago" for a recent index, the date and time for an older one.
+export function ago(t, nowMs, at) {
+  const iso = String(at ?? '')
+  const ms = nowMs - Date.parse(iso)
+  // A stamp up to a minute ahead is clock skew between the indexer and the engine, not the future.
+  if (!Number.isFinite(ms) || ms < -MINUTE_MS) return iso.slice(0, 16).replace('T', ' ')
+  if (ms < MINUTE_MS) return t('agoNow')
+  if (ms < HOUR_MS) return t('agoMin', { n: Math.floor(ms / MINUTE_MS) })
+  if (ms < DAY_MS) return t('agoHour', { n: Math.floor(ms / HOUR_MS) })
+  return iso.slice(0, 16).replace('T', ' ')
 }
 
-function statusText(t, s) {
-  if (s.error) return [STATUS_ICON.error, t('indexError', { error: s.error }), 'error']
-  if (s.indexing) return [STATUS_ICON.indexing, t('indexing'), 'warning']
-  if (s.generatedAt) return [STATUS_ICON.indexed, t('indexed', { at: s.generatedAt.slice(0, 16).replace('T', ' '), n: s.sessions }), null]
-  return [STATUS_ICON.none, t('notIndexed'), null]
+function statusText(model) {
+  const { t, status: s } = model
+  if (s.error) return [t('indexError', { error: s.error }), 'error']
+  if (s.indexing) return [t('indexing'), 'warning']
+  if (s.generatedAt) return [t('indexed', { at: ago(t, model.nowMs, s.generatedAt), n: s.sessions }), null]
+  return [t('notIndexed'), null]
 }
 
 function statusLine(el, model, h) {
-  const { Box, Text, Button } = el
+  const { Box, Text } = el
   const { t } = model
-  const [icon, text, color] = statusText(t, model.status)
+  const [text, color] = statusText(model)
   const rich = isRich(model)
   return Box({
     flexDirection: 'row',
     columnGap: 2,
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
     children: [
-      Box({ flexDirection: 'row', columnGap: 1, children: [Text({ children: [icon] }), Text({ ...(color ? { color } : { dimColor: true }), wrap: 'truncate-end', children: [clean(text)] })] }),
-      model.versionWarning ? Text({ color: 'warning', wrap: 'truncate-end', children: ['❗ ' + t('oldVersion', model.versionWarning)] }) : null,
-      Button({ key: 'refresh', label: '↻ ' + t('refresh'), hotkey: 'r', plain: true, onPress: () => h.onRefresh() }),
-      Button({ key: 'pane-style', label: t(rich ? 'styleSimple' : 'styleRich'), hotkey: 'v', plain: true, onPress: () => h.onSetting('paneStyle', rich ? 'simple' : 'rich') }),
-    ].filter(Boolean),
+      Box({
+        flexDirection: 'column',
+        children: [
+          Text({ ...(color ? { color } : { dimColor: true }), wrap: 'truncate-end', children: [clean(text)] }),
+          model.versionWarning ? Text({ color: 'warning', wrap: 'truncate-end', children: [t('oldVersion', model.versionWarning)] }) : null,
+        ].filter(Boolean),
+      }),
+      Box({
+        flexDirection: 'row',
+        columnGap: 2,
+        children: [
+          textButton(el, { key: 'refresh', label: t('refresh'), hotkey: 'r', tone: 'dim', onPress: () => h.onRefresh() }),
+          textButton(el, { key: 'pane-style', label: t(rich ? 'styleSimple' : 'styleRich'), hotkey: 'v', tone: 'dim', onPress: () => h.onSetting('paneStyle', rich ? 'simple' : 'rich') }),
+        ],
+      }),
+    ],
   })
 }
 
@@ -100,138 +157,132 @@ function body(el, model, h) {
   if (model.tab === 'standup') return standup(el, model, h)
   if (model.tab === 'settings') return settingsTab(el, model, h)
   const list = model.lists[model.tab] || []
-  if (!list.length) return [iconLine(el, ICON.empty, model.t(model.tab === 'now' ? 'emptyNow' : 'emptyList'), { color: 'success' })]
-  const cards = list.map((f) => findingCard(el, model.t, f, h, isRich(model)))
-  return isRich(model) ? [section(el, model.t('findingsHead'), model.t('findingsCount', { n: list.length })), ...cards] : cards
+  if (!list.length) return [emptyState(el, model)]
+  const cards = list.map((f) => findingCard(el, model.t, f, h, model.burnEffect))
+  return isRich(model) ? [heading(el, model.t('findingsHead'), model.t('findingsCount', { n: list.length })), ...cards] : cards
 }
 
-// Severity: a colored icon and title in both styles, plus a word chip and a frame in the rich one.
-function findingHead(el, t, f, rich) {
+function emptyState(el, model) {
+  const { t } = model
+  if (model.tab === 'now') return glyphLine(el, GLYPH.check, t('emptyNow'), { color: 'success' }, { color: 'success' })
+  return meta(el, t('emptyList'))
+}
+
+// A finding: a severity dot and the title, then the severity word with the evidence, the next
+// step, and its actions. The dot carries the color; the word carries the meaning. A rainbow
+// finding (the burn pace) draws its title in the burnEffect.
+function findingHead(el, t, f, effect) {
   const { Box, Text } = el
   const sev = severityOf(f)
+  const title = f.rainbow ? rainbowText(el, { key: 'rainbow-' + f.id, text: clean(f.title), effect }) : Text({ bold: true, children: [clean(f.title)] })
   return Box({
-    flexDirection: 'row',
-    columnGap: 1,
+    flexDirection: 'column',
     children: [
-      Text({ children: [sev.icon] }),
-      rich ? chip(el, t(sev.word), sev.color) : null,
-      Text({ bold: true, color: sev.color, children: [clean(f.title)] }),
-    ].filter(Boolean),
+      Box({ flexDirection: 'row', columnGap: 1, children: [Text({ color: sev.color, children: [sev.glyph] }), title] }),
+      indent(el, [meta(el, [t(sev.word), clean(f.evidence)])]),
+    ],
   })
 }
 
-function findingCard(el, t, f, h, rich = false) {
-  const { Box, Button, Link } = el
+function docsLink(el, t, f) {
+  return f.doc ? el.Link({ href: f.doc, label: `${t('docs')} ${GLYPH.external}` }) : null
+}
+
+function findingCard(el, t, f, h, effect) {
+  const { Box } = el
   const actions = [
-    Button({ key: 'ask-' + f.id, label: t('ask'), onPress: () => h.onAsk(f) }),
-    f.applyPrompt ? Button({ key: 'apply-' + f.id, label: t('apply'), onPress: () => h.onApply(f) }) : null,
-    Button({ key: 'hide-' + f.id, label: t('dismiss'), onPress: () => h.onDismiss(f) }),
-    f.doc ? Link({ href: f.doc, label: '📖 ' + t('docs') }) : null,
+    textButton(el, { key: 'ask-' + f.id, label: t('ask'), onPress: () => h.onAsk(f) }),
+    f.applyPrompt ? textButton(el, { key: 'apply-' + f.id, label: t('apply'), onPress: () => h.onApply(f) }) : null,
+    textButton(el, { key: 'hide-' + f.id, label: t('dismiss'), tone: 'dim', onPress: () => h.onDismiss(f) }),
+    docsLink(el, t, f),
   ].filter(Boolean)
-  const frame = rich ? { borderStyle: 'round', borderColor: severityOf(f).color, paddingX: 1 } : {}
   return Box({
     key: 'card-' + f.id,
     flexDirection: 'column',
-    ...frame,
     children: [
-      findingHead(el, t, f, rich),
-      Box({
-        flexDirection: 'column',
-        paddingLeft: 3,
-        children: [iconLine(el, ICON.evidence, clean(f.evidence), { dimColor: true }), iconLine(el, ICON.action, clean(f.action))],
-      }),
-      Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', paddingLeft: 3, children: actions }),
+      findingHead(el, t, f, effect),
+      indent(el, [glyphLine(el, GLYPH.arrow, clean(f.action), {}, { dimColor: true }), Box({ flexDirection: 'row', columnGap: 2, flexWrap: 'wrap', children: actions })]),
     ],
   })
 }
 
 function standupHeader(el, model, h) {
-  const { Box, Button } = el
+  const { Box } = el
   return Box({
     flexDirection: 'row',
     columnGap: 2,
-    children: [1, 3, 7].map((d) => Button({
-      key: 'days-' + d, label: model.t('days', { d }), plain: true,
-      ...(model.days === d ? {} : { dimColor: true }),
-      onPress: () => h.onDays(d),
-    })),
+    children: [1, 3, 7].map((d) => textButton(el, { key: 'days-' + d, label: model.t('days', { d }), tone: model.days === d ? 'plain' : 'dim', onPress: () => h.onDays(d) })),
   })
 }
 
 function standupRow(el, model, row) {
-  const { Box, Text } = el
+  const { Box } = el
   const { t } = model
   const lines = [
-    ...row.sessions.slice(-4).map((s) => iconLine(el, ICON.session, clean(s.title))),
-    ...row.sessions.filter((s) => s.away).slice(-1).map((s) => iconLine(el, ICON.recap, clean(t('recap') + s.away), { dimColor: true })),
-    row.commits.length ? iconLine(el, ICON.commit, clean(t('commits') + row.commits.slice(0, 5).join(' / ')), { dimColor: true }) : null,
-    row.files.length ? iconLine(el, ICON.file, clean(t('files') + row.files.join(', ')), { dimColor: true, wrap: 'truncate-end' }) : null,
+    ...row.sessions.slice(-4).map((s) => glyphLine(el, GLYPH.sep, clean(s.title), {}, { dimColor: true })),
+    ...row.sessions.filter((s) => s.away).slice(-1).map((s) => labelled(el, t('recap'), clean(s.away), LABEL_COLS, { dimColor: true })),
+    row.commits.length ? labelled(el, t('commits'), clean(row.commits.slice(0, 5).join(' / ')), LABEL_COLS, { dimColor: true }) : null,
+    row.files.length ? labelled(el, t('files'), clean(row.files.join(', ')), LABEL_COLS, { dimColor: true, wrap: 'truncate-end' }) : null,
   ].filter(Boolean)
-  const frame = isRich(model) ? { borderStyle: 'round', borderColor: 'subtle', paddingX: 1 } : {}
-  const head = Box({
-    flexDirection: 'row',
-    columnGap: 1,
-    children: [Text({ children: [ICON.folder] }), Text({ bold: true, color: ACCENT, children: [clean(folder(row.project))] }), Text({ dimColor: true, children: [t('sessionCount', { n: row.sessions.length })] })],
-  })
-  return Box({ key: 'su-' + row.project, flexDirection: 'column', ...frame, children: [head, Box({ flexDirection: 'column', paddingLeft: 3, children: lines })] })
+  const head = heading(el, clean(folder(row.project)), t('sessionCount', { n: row.sessions.length }))
+  return Box({ key: 'su-' + row.project, flexDirection: 'column', children: [head, indent(el, lines)] })
 }
 
 function standup(el, model, h) {
   const header = standupHeader(el, model, h)
-  if (!model.standup.length) return [header, iconLine(el, ICON.empty, model.t('noSessions', { d: model.days }), { dimColor: true })]
+  if (!model.standup.length) return [header, meta(el, model.t('noSessions', { d: model.days }))]
   return [header, ...model.standup.map((row) => standupRow(el, model, row))]
 }
 
 function aiBlock(el, model, h) {
   if (!AI_TABS.has(model.tab)) return null
-  const { Box, Button, Markdown, Text } = el
+  const { Box, Markdown, Text } = el
   const { t } = model
   const ai = model.ai[model.tab]
-  const children = [Button({ key: 'ai-' + model.tab, label: `${ICON.ai} ` + (ai?.loading ? t('summarizing') : t('summarize', { model: model.settings.model })), hotkey: 'a', onPress: () => h.onAi(model.tab) })]
+  const children = [
+    hairline(el, model),
+    textButton(el, { key: 'ai-' + model.tab, label: ai?.loading ? t('summarizing') : t('summarize', { model: model.settings.model }), hotkey: 'a', onPress: () => h.onAi(model.tab) }),
+  ]
   if (ai?.text) children.push(Markdown({ key: 'ai-text-' + model.tab, text: clean(ai.text).slice(0, 9000) }))
-  if (ai?.error) children.push(Text({ color: 'error', children: [clean('❌ ' + t('summaryFailed', { error: ai.error }))] }))
-  children.push(Text({ dimColor: true, children: [t('summaryNote')] }))
-  const frame = isRich(model) ? { borderStyle: 'round', borderColor: ACCENT, paddingX: 1 } : {}
-  return Box({ flexDirection: 'column', ...frame, children })
+  if (ai?.error) children.push(Text({ color: 'error', children: [clean(t('summaryFailed', { error: ai.error }))] }))
+  children.push(meta(el, t('summaryNote')))
+  return Box({ flexDirection: 'column', children: children.filter(Boolean) })
 }
 
 // Details: the finding's numbers, the rule's breakdown and an AI explanation, all inside the pane.
 function renderDetail(el, model, h) {
-  const { Box, Text, Code } = el
+  const { Box, Code } = el
   const { t } = model
   const f = model.detail
   const details = f.details || []
-  const shown = details.slice(0, DETAIL_MAX).map((d) => Text({ children: [clean('• ' + d)] }))
-  if (details.length > DETAIL_MAX) shown.push(Text({ dimColor: true, children: [t('more', { n: details.length - DETAIL_MAX })] }))
-  const rich = isRich(model)
-  const frame = rich ? { borderStyle: 'round', borderColor: severityOf(f).color, paddingX: 1 } : {}
-  const head = Box({ flexDirection: 'column', ...frame, children: [findingHead(el, t, f, rich), iconLine(el, ICON.evidence, clean(f.evidence), { dimColor: true })] })
+  const shown = details.slice(0, DETAIL_MAX).map((d) => glyphLine(el, GLYPH.sep, clean(d), {}, { dimColor: true }))
+  if (details.length > DETAIL_MAX) shown.push(meta(el, t('more', { n: details.length - DETAIL_MAX })))
   return Box({
     flexDirection: 'column',
     rowGap: 1,
     children: [
-      detailActions(el, t, f, h),
-      f.isResolved ? iconLine(el, '✅', t('resolved'), { color: 'success' }) : null,
-      head,
-      shown.length ? Box({ flexDirection: 'column', children: [section(el, t('breakdown')), Box({ flexDirection: 'column', paddingLeft: 2, children: shown })] }) : null,
-      Box({ flexDirection: 'column', children: [section(el, t('actionHead')), Box({ paddingLeft: 2, children: [iconLine(el, ICON.action, clean(f.action), { bold: true })] })] }),
-      Box({ flexDirection: 'column', children: [section(el, t('promptHead')), Code({ source: clean(f.copyText) })] }),
+      Box({ flexDirection: 'column', children: [detailActions(el, t, f, h), hairline(el, model)].filter(Boolean) }),
+      findingHead(el, t, f, model.burnEffect),
+      f.isResolved ? glyphLine(el, GLYPH.check, t('resolved'), { color: 'success' }, { color: 'success' }) : null,
+      shown.length ? Box({ flexDirection: 'column', children: [heading(el, t('breakdown')), indent(el, shown)] }) : null,
+      Box({ flexDirection: 'column', children: [heading(el, t('actionHead')), indent(el, [glyphLine(el, GLYPH.arrow, clean(f.action), { bold: true }, { dimColor: true })])] }),
+      Box({ flexDirection: 'column', children: [heading(el, t('promptHead'), t('promptHint')), Code({ source: clean(f.copyText) })] }),
       explainBlock(el, model, h),
     ].filter(Boolean),
   })
 }
 
 function detailActions(el, t, f, h) {
-  const { Box, Button, Link } = el
+  const { Box } = el
   return Box({
     flexDirection: 'row',
     columnGap: 2,
     flexWrap: 'wrap',
     children: [
-      Button({ key: 'back', label: '← ' + t('back'), hotkey: 'b', plain: true, onPress: () => h.onBack() }),
-      Button({ key: 'copy-' + f.id, label: '📋 ' + t('copy'), hotkey: 'c', plain: true, onPress: (press) => h.onCopy(f.copyText, press) }),
-      f.applyPrompt ? Button({ key: 'apply-' + f.id, label: t('applyChat'), onPress: () => h.onApply(f) }) : null,
-      f.doc ? Link({ href: f.doc, label: '📖 ' + t('docs') }) : null,
+      textButton(el, { key: 'back', label: t('back'), hotkey: 'b', tone: 'plain', onPress: () => h.onBack() }),
+      textButton(el, { key: 'copy-' + f.id, label: t('copy'), hotkey: 'c', tone: 'dim', onPress: (press) => h.onCopy(f.copyText, press) }),
+      f.applyPrompt ? textButton(el, { key: 'apply-' + f.id, label: t('applyChat'), onPress: () => h.onApply(f) }) : null,
+      docsLink(el, t, f),
     ].filter(Boolean),
   })
 }
@@ -240,26 +291,20 @@ function explainBody(el, model) {
   const { Text, Markdown } = el
   const { t } = model
   const ex = model.explain
-  if (ex?.loading) return [iconLine(el, '⏳', t('explaining', { model: ex.model }), { dimColor: true })]
-  if (ex?.error) return [Text({ color: 'error', children: [clean('❌ ' + t('explainFailed', { error: ex.error }))] })]
-  if (ex?.text) return [Markdown({ key: 'explain-' + model.detail.id, text: clean(ex.text).slice(0, 9000) }), Text({ dimColor: true, children: [usageLine(t, ex)] })]
-  return [Text({ dimColor: true, children: [generateHint(t, model.settings)] })]
+  if (ex?.loading) return [meta(el, t('explaining', { model: ex.model }))]
+  if (ex?.error) return [Text({ color: 'error', children: [clean(t('explainFailed', { error: ex.error }))] })]
+  if (ex?.text) return [Markdown({ key: 'explain-' + model.detail.id, text: clean(ex.text).slice(0, 9000) }), meta(el, usageLine(t, ex))]
+  return [meta(el, generateHint(t, model.settings))]
 }
 
 function explainBlock(el, model, h) {
-  const { Box, Text, Button } = el
+  const { Box } = el
   const { t } = model
   const f = model.detail
-  const head = Box({
-    flexDirection: 'row',
-    columnGap: 2,
-    children: [Text({ bold: true, color: ACCENT, children: [`${ICON.ai} ${t('explainHead')}`] }), Button({ key: 'explain-again', label: '↻ ' + t(model.explain?.text ? 'regenerate' : 'generate'), hotkey: 'g', plain: true, onPress: () => h.onExplainAgain(f) })],
-  })
-  const frame = isRich(model) ? { borderStyle: 'round', borderColor: ACCENT, paddingX: 1 } : {}
+  const again = textButton(el, { key: 'explain-again', label: t(model.explain?.text ? 'regenerate' : 'generate'), hotkey: 'g', tone: 'dim', onPress: () => h.onExplainAgain(f) })
   return Box({
     flexDirection: 'column',
-    ...frame,
-    children: [head, ...explainBody(el, model), settingsRow(el, model, h), Text({ dimColor: true, children: [t(f.localDetails ? 'sendLocal' : 'sendDetail')] })],
+    children: [heading(el, t('explainHead'), [again]), indent(el, [...explainBody(el, model), settingsRow(el, model, h), meta(el, t(f.localDetails ? 'sendLocal' : 'sendDetail'))])],
   })
 }
 
@@ -277,7 +322,7 @@ function usageLine(t, ex) {
 
 // Model and effort pickers; a change is saved to this plugin's /config fields.
 function settingsRow(el, model, h) {
-  const { Box, Text, Select } = el
+  const { Box, Select } = el
   const { t, settings, aiUsage } = model
   return Box({
     flexDirection: 'column',
@@ -288,10 +333,10 @@ function settingsRow(el, model, h) {
         flexWrap: 'wrap',
         children: [
           Select({ key: 'ai-model', label: t('modelLabel'), value: settings.model, options: MODEL_OPTIONS.map((m) => ({ value: m, label: CREDIT_MODELS.has(m) ? t('creditLabel', { model: m }) : m })), onSelect: (v) => h.onSetting('aiModel', v) }),
-          Select({ key: 'ai-effort', label: 'effort', value: settings.effort, options: EFFORT_OPTIONS.map((x) => ({ value: x, label: x })), onSelect: (v) => h.onSetting('aiEffort', v) }),
+          Select({ key: 'ai-effort', label: t('effortLabel'), value: settings.effort, options: EFFORT_OPTIONS.map((x) => ({ value: x, label: x })), onSelect: (v) => h.onSetting('aiEffort', v) }),
         ],
       }),
-      Text({ dimColor: true, children: [t('sessionUsage', aiUsage)] }),
+      meta(el, t('sessionUsage', aiUsage)),
     ],
   })
 }
@@ -300,23 +345,16 @@ function settingsRow(el, model, h) {
 const SPEC_BY_KEY = Object.fromEntries(SETTINGS_SPEC.map((s) => [s.key, s]))
 
 function settingsTab(el, model, h) {
-  const { Box, Text } = el
+  const { Box } = el
   const { t } = model
-  const frame = isRich(model) ? { borderStyle: 'round', borderColor: 'subtle', paddingX: 1 } : {}
   return [
-    iconLine(el, '📌', t('settingsIntro'), { dimColor: true }),
+    meta(el, t('settingsIntro')),
     ...SETTING_GROUPS.map((g) => Box({
       key: 'group-' + g.id,
       flexDirection: 'column',
-      ...frame,
       children: [
-        section(el, `${g.icon} ${t('group_' + g.id)}`),
-        ...g.keys.map((key) => Box({
-          key: 'setting-' + key,
-          flexDirection: 'column',
-          paddingLeft: 2,
-          children: [settingControl(el, t, SPEC_BY_KEY[key], model.config[key], h), Text({ dimColor: true, children: ['  ' + t('cfgHelp_' + key)] })],
-        })),
+        heading(el, t('group_' + g.id)),
+        ...g.keys.map((key) => indent(el, [settingControl(el, t, SPEC_BY_KEY[key], model.config[key], h), indent(el, [meta(el, t('cfgHelp_' + key))])])),
       ],
     })),
   ]
@@ -331,7 +369,7 @@ function settingControl(el, t, spec, value, h) {
     return Select({ key, label, value: String(value), options: spec.options.map((o) => ({ value: o, label: CREDIT_MODELS.has(o) ? t('creditLabel', { model: o }) : o })), onSelect: save })
   }
   if (spec.kind === 'bool') {
-    return Select({ key, label, value: value ? 'on' : 'off', options: [{ value: 'on', label: '✅ ' + t('settingOn') }, { value: 'off', label: '⬜ ' + t('settingOff') }], onSelect: save })
+    return Select({ key, label, value: value ? 'on' : 'off', options: [{ value: 'on', label: t('settingOn') }, { value: 'off', label: t('settingOff') }], onSelect: save })
   }
   return Input({ key, label, value: clean(value), submitLabel: t('settingSave'), onSubmit: save })
 }

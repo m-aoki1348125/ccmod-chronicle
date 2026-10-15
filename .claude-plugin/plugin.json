@@ -1,7 +1,7 @@
 {
   "name": "ccmod-chronicle",
   "displayName": "ccmod-chronicle",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Sidebar that analyzes how you use Claude Code: live warnings, cost, tips, standup and CLAUDE.md improvements. English and Japanese.",
   "author": {
     "name": "m-aoki",
@@ -32,7 +32,7 @@
     "paneStyle": {
       "type": "string",
       "title": "Pane style",
-      "description": "simple: light text view. rich: charts, meters and bordered cards (terminal and desktop app).",
+      "description": "simple: the list alone. rich: stats and charts above it (terminal and desktop app).",
       "options": [
         "simple",
         "rich"
@@ -111,6 +111,25 @@
       "title": "Excluded projects",
       "description": "Comma-separated project path prefixes to leave out of the analysis (e.g. customer work)",
       "default": ""
+    },
+    "burnAlert": {
+      "type": "number",
+      "title": "Burn alert (tokens/min)",
+      "description": "When a turn spends tokens faster than this (cache reads count a tenth), the band above the prompt and the Now tab light up in rainbow letters. 0 turns the alert off.",
+      "default": 100000,
+      "min": 0,
+      "max": 10000000
+    },
+    "burnEffect": {
+      "type": "string",
+      "title": "Burn alert effect",
+      "description": "rainbow: animated rainbow letters like ultrathink. still: rainbow letters without motion. plain: one warning color.",
+      "options": [
+        "rainbow",
+        "still",
+        "plain"
+      ],
+      "default": "rainbow"
     }
   },
   "types": "./types/index.d.ts"
